@@ -78,7 +78,7 @@
 
 ### Step 2.2 — Duplicate/Related Complaint Detection — DONE
 - [x] `backend/app/services/duplicate_detector.py`
-- [x] Embedding generation via OpenAI API
+- [x] Embedding generation via Google Gemini API
 - [x] Embedding stored in `complaint_embeddings` (pgvector, 1536 dimensions)
 - [x] Cosine similarity query: >0.85 = duplicate, >0.70 = related
 - [x] GET `/api/complaints/{id}/similar` endpoint

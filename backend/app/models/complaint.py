@@ -66,6 +66,6 @@ class ComplaintEmbedding(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     complaint_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("complaints.id"), unique=True)
-    embedding = mapped_column(Vector(1536))  # text-embedding-3-small dimension
+    embedding = mapped_column(Vector(768))  # Gemini text-embedding-004 dimension
 
     complaint: Mapped["Complaint"] = relationship(back_populates="embedding")

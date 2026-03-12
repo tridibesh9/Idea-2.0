@@ -5,11 +5,11 @@ from functools import lru_cache
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://complaintiq:complaintiq@localhost:5432/complaintiq"
     DATABASE_URL_SYNC: str = "postgresql://complaintiq:complaintiq@localhost:5432/complaintiq"
-    OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     JWT_SECRET: str = "change-me-in-production"
     CORS_ORIGINS: str = "http://localhost:3000"
-    OPENAI_MODEL: str = "gpt-4o"
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    EMBEDDING_MODEL: str = "text-embedding-004"
 
     class Config:
         env_file = ".env"

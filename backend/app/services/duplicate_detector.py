@@ -1,5 +1,5 @@
 import uuid
-from openai import AsyncOpenAI
+from google import genai
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,18 +8,18 @@ from app.models.complaint import Complaint, ComplaintEmbedding
 from app.schemas.schemas import SimilarComplaint
 
 settings = get_settings()
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
 
 async def generate_embedding(text: str) -> list[float] | None:
     """Generate an embedding vector for the given text."""
     if not client:
         return None
-    response = await client.embeddings.create(
+    response = await client.aio.models.embed_content(
         model=settings.EMBEDDING_MODEL,
-        input=text,
+        contents=text,
     )
-    return response.data[0].embedding
+    return response.embeddings[0].values
 
 
 async def find_similar(

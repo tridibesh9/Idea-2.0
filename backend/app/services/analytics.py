@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
-from openai import AsyncOpenAI
+from google import genai
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +9,7 @@ from app.models.complaint import Complaint
 from app.schemas.schemas import RootCauseInsight
 
 settings = get_settings()
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
 
 async def _get_complaint_stats(db: AsyncSession, days: int) -> dict:
@@ -86,17 +86,16 @@ Return a JSON object with:
 
 Return ONLY the JSON object."""
 
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "You are a data analyst specializing in customer complaints. Respond with valid JSON only."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.3,
-        response_format={"type": "json_object"},
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
+        config={
+            "temperature": 0.3,
+            "response_mime_type": "application/json",
+        },
     )
 
-    result = json.loads(response.choices[0].message.content)
+    result = json.loads(response.text)
     return RootCauseInsight(**result)
 
 
@@ -118,13 +117,12 @@ async def generate_weekly_summary(db: AsyncSession) -> str:
 Cover: volume trends, top issues, severity distribution, and actionable recommendations.
 Write in a professional tone suitable for a management report."""
 
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "You are a business analyst writing a weekly complaint report."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.4,
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
+        config={
+            "temperature": 0.4,
+        },
     )
 
-    return response.choices[0].message.content
+    return response.text

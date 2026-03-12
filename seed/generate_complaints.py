@@ -187,7 +187,7 @@ async def seed():
             CREATE TABLE IF NOT EXISTS complaint_embeddings (
                 id UUID PRIMARY KEY,
                 complaint_id UUID UNIQUE REFERENCES complaints(id),
-                embedding vector(1536)
+                embedding vector(768)
             )
         """)
         await conn.execute("""

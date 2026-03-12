@@ -1,10 +1,10 @@
 import json
-from openai import AsyncOpenAI
+from google import genai
 from app.config import get_settings
 from app.schemas.schemas import GenerateResponseResult
 
 settings = get_settings()
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
 RESPONSE_PROMPT = """You are a customer service response drafting AI for a financial services company.
 Draft a professional response to the following customer complaint.
@@ -38,27 +38,23 @@ async def generate_response(complaint, tone: str = "empathetic") -> GenerateResp
     if not client:
         return _fallback_response(complaint, tone)
 
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "You are a helpful customer service response generator. Always respond with valid JSON only."},
-            {
-                "role": "user",
-                "content": RESPONSE_PROMPT.format(
-                    subject=complaint.subject or "N/A",
-                    category=complaint.category or "general",
-                    severity=complaint.severity,
-                    sentiment=complaint.sentiment_label or "unknown",
-                    body=complaint.body,
-                    tone=tone,
-                ),
-            },
-        ],
-        temperature=0.4,
-        response_format={"type": "json_object"},
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=RESPONSE_PROMPT.format(
+            subject=complaint.subject or "N/A",
+            category=complaint.category or "general",
+            severity=complaint.severity,
+            sentiment=complaint.sentiment_label or "unknown",
+            body=complaint.body,
+            tone=tone,
+        ),
+        config={
+            "temperature": 0.4,
+            "response_mime_type": "application/json",
+        },
     )
 
-    result = json.loads(response.choices[0].message.content)
+    result = json.loads(response.text)
     return GenerateResponseResult(**result)
 
 

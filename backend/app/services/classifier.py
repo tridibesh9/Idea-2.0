@@ -1,10 +1,10 @@
 import json
-from openai import AsyncOpenAI
+from google import genai
 from app.config import get_settings
 from app.schemas.schemas import ComplaintClassification
 
 settings = get_settings()
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
 CLASSIFICATION_PROMPT = """You are a complaint classification AI for a financial services company. 
 Analyze the following customer complaint and return a JSON object with these fields:
@@ -27,20 +27,18 @@ Return ONLY the JSON object, no other text."""
 async def classify_complaint(text: str, channel: str) -> ComplaintClassification:
     """Classify a complaint using the LLM."""
     if not client:
-        # Fallback if no API key — return basic classification
         return _fallback_classify(text)
 
-    response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "You are a precise complaint classification system. Always respond with valid JSON only."},
-            {"role": "user", "content": CLASSIFICATION_PROMPT.format(text=text, channel=channel)},
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"},
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=CLASSIFICATION_PROMPT.format(text=text, channel=channel),
+        config={
+            "temperature": 0.1,
+            "response_mime_type": "application/json",
+        },
     )
 
-    result = json.loads(response.choices[0].message.content)
+    result = json.loads(response.text)
     return ComplaintClassification(**result)
 
 

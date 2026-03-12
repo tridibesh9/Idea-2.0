@@ -11,8 +11,8 @@
 | Frontend    | React 18 + Tailwind CSS + Recharts  |
 | Backend     | FastAPI (Python)                    |
 | Database    | PostgreSQL + pgvector               |
-| AI/LLM      | OpenAI GPT-4o API                  |
-| Embeddings  | OpenAI text-embedding-3-small       |
+| AI/LLM      | Google Gemini 2.0 Flash API         |
+| Embeddings  | Google text-embedding-004            |
 | Real-time   | WebSockets (FastAPI)               |
 | Auth        | JWT (simple, for demo)             |
 | Deployment  | Docker Compose (local demo)        |
@@ -368,7 +368,7 @@ Idea2.0/
 
 ```
 DATABASE_URL=postgresql://user:pass@localhost:5432/complaintiq
-OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=your-gemini-api-key-here
 JWT_SECRET=your-secret-key
 CORS_ORIGINS=http://localhost:3000
 ```
