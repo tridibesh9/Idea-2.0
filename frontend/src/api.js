@@ -27,4 +27,11 @@ export const getEscalations = (params) => api.get('/escalations', { params });
 // ── Audit ──
 export const getAuditTrail = (complaintId) => api.get(`/audit/${complaintId}`);
 
+// ── Reports / Export ──
+export const exportComplaints = (params) => api.get('/reports/export', { params, responseType: params?.format === 'csv' ? 'blob' : undefined });
+
+// ── Simulator ──
+export const simulateChannel = (channel) => api.post(`/simulator/simulate/${channel}`);
+export const simulateBurst = (count = 5) => api.post(`/simulator/simulate/burst?count=${count}`);
+
 export default api;

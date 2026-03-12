@@ -95,6 +95,20 @@ async def create_complaint(payload: ComplaintCreate, db: AsyncSession = Depends(
     db.add(audit)
     await db.flush()
 
+    # Broadcast via WebSocket
+    try:
+        from app.routes.websocket import manager
+        await manager.broadcast({
+            "type": "new_complaint",
+            "complaint_id": str(complaint.id),
+            "channel": payload.channel,
+            "subject": complaint.subject,
+            "severity": complaint.severity,
+            "category": complaint.category,
+        })
+    except Exception:
+        pass
+
     return complaint
 
 
@@ -167,6 +181,20 @@ async def update_complaint(
     )
     db.add(audit)
     await db.flush()
+
+    # Broadcast status change via WebSocket
+    try:
+        from app.routes.websocket import manager
+        await manager.broadcast({
+            "type": "status_change",
+            "complaint_id": str(complaint.id),
+            "status": complaint.status,
+            "severity": complaint.severity,
+            "subject": complaint.subject,
+        })
+    except Exception:
+        pass
+
     return complaint
 
 

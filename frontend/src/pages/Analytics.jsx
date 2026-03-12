@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { getTrends, getRootCause, getWeeklySummary } from '../api';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, PieChart, Pie, Cell,
 } from 'recharts';
+import { SkeletonCard } from '../components/Skeleton';
 
 const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899', '#14b8a6'];
 
@@ -13,11 +15,13 @@ export default function Analytics() {
   const [weeklySummary, setWeeklySummary] = useState('');
   const [groupBy, setGroupBy] = useState('category');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => { loadData(); }, [groupBy]);
 
   async function loadData() {
     setLoading(true);
+    setError(null);
     try {
       const [tRes, rRes, wRes] = await Promise.all([
         getTrends({ days: 30, group_by: groupBy }),
@@ -28,6 +32,7 @@ export default function Analytics() {
       setRootCause(rRes.data);
       setWeeklySummary(wRes.data.summary);
     } catch (err) {
+      setError('Failed to load analytics data');
       console.error(err);
     } finally {
       setLoading(false);
@@ -35,7 +40,22 @@ export default function Analytics() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>;
+    return (
+      <div className="space-y-6">
+        <SkeletonCard lines={2} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><SkeletonCard lines={6} /><SkeletonCard lines={6} /></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <AlertCircle size={40} className="text-red-400 mb-3" />
+        <p className="text-gray-600 dark:text-gray-400">{error}</p>
+        <button onClick={loadData} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Retry</button>
+      </div>
+    );
   }
 
   // Aggregate trend data for the chart
@@ -50,17 +70,17 @@ export default function Analytics() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">Analytics</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Trend Chart */}
-        <div className="bg-white rounded-xl shadow-sm border p-4 lg:col-span-2">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-800">Complaint Trends (Last 30 Days)</h3>
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Complaint Trends (Last 30 Days)</h3>
             <div className="flex gap-2">
               {['category', 'channel', 'severity'].map((g) => (
                 <button key={g} onClick={() => setGroupBy(g)}
-                  className={`px-3 py-1 rounded-full text-xs border ${groupBy === g ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>
+                  className={`px-3 py-1 rounded-full text-xs border dark:border-gray-600 ${groupBy === g ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-400'}`}>
                   {g}
                 </button>
               ))}
@@ -81,33 +101,33 @@ export default function Analytics() {
         </div>
 
         {/* Root Cause */}
-        <div className="bg-white rounded-xl shadow-sm border p-4">
-          <h3 className="font-semibold text-gray-800 mb-3">AI Root Cause Analysis</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">AI Root Cause Analysis</h3>
           {rootCause ? (
             <div>
-              <p className="text-sm text-gray-700 mb-4">{rootCause.summary}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">{rootCause.summary}</p>
               <div className="mb-3">
-                <p className="text-xs font-medium text-gray-500 mb-2">Top Categories</p>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top Categories</p>
                 {rootCause.top_categories?.map((c, i) => (
-                  <div key={i} className="flex justify-between text-sm py-1">
+                  <div key={i} className="flex justify-between text-sm py-1 dark:text-gray-300">
                     <span>{c.category}</span>
                     <span className="font-medium">{c.count}</span>
                   </div>
                 ))}
               </div>
               <div>
-                <p className="text-xs font-medium text-gray-500 mb-2">Recommendations</p>
-                <ul className="text-sm text-gray-600 space-y-1">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Recommendations</p>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                   {rootCause.recommendations?.map((r, i) => <li key={i}>• {r}</li>)}
                 </ul>
               </div>
             </div>
-          ) : <p className="text-sm text-gray-400">No data available</p>}
+          ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
         </div>
 
         {/* Category Distribution Pie */}
-        <div className="bg-white rounded-xl shadow-sm border p-4">
-          <h3 className="font-semibold text-gray-800 mb-3">Category Distribution</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">Category Distribution</h3>
           {rootCause?.top_categories?.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
@@ -119,13 +139,13 @@ export default function Analytics() {
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
-          ) : <p className="text-sm text-gray-400">No data available</p>}
+          ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
         </div>
 
         {/* Weekly Summary */}
-        <div className="bg-white rounded-xl shadow-sm border p-4 lg:col-span-2">
-          <h3 className="font-semibold text-gray-800 mb-3">AI Weekly Summary</h3>
-          <p className="text-sm text-gray-700 whitespace-pre-line">{weeklySummary || 'No summary available'}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">AI Weekly Summary</h3>
+          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{weeklySummary || 'No summary available'}</p>
         </div>
       </div>
     </div>

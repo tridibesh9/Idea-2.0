@@ -6,6 +6,7 @@ import {
 import {
   getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint,
 } from '../api';
+import { SkeletonCard } from '../components/Skeleton';
 
 const SEVERITY_COLORS = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
 const STATUS_COLORS = { new: '#3b82f6', open: '#8b5cf6', in_progress: '#f59e0b', escalated: '#ef4444', resolved: '#22c55e', closed: '#6b7280' };
@@ -17,6 +18,7 @@ export default function ComplaintDetail() {
   const [similar, setSimilar] = useState([]);
   const [audit, setAudit] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // AI Response
   const [showAiModal, setShowAiModal] = useState(false);
@@ -32,6 +34,7 @@ export default function ComplaintDetail() {
 
   async function loadAll() {
     setLoading(true);
+    setError(null);
     try {
       const [cRes, tRes, sRes, aRes] = await Promise.all([
         getComplaint(id),
@@ -44,6 +47,7 @@ export default function ComplaintDetail() {
       setSimilar(sRes.data);
       setAudit(aRes.data);
     } catch (err) {
+      setError('Failed to load complaint details');
       console.error(err);
     } finally {
       setLoading(false);
@@ -78,11 +82,29 @@ export default function ComplaintDetail() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>;
+    return (
+      <div className="space-y-4">
+        <SkeletonCard lines={2} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4"><SkeletonCard lines={4} /><SkeletonCard lines={6} /></div>
+          <div className="space-y-4"><SkeletonCard lines={3} /><SkeletonCard lines={3} /></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <AlertCircle size={40} className="text-red-400 mb-3" />
+        <p className="text-gray-600 dark:text-gray-400">{error}</p>
+        <button onClick={loadAll} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Retry</button>
+      </div>
+    );
   }
 
   if (!complaint) {
-    return <div className="text-center py-12 text-gray-400">Complaint not found</div>;
+    return <div className="text-center py-12 text-gray-400 dark:text-gray-500">Complaint not found</div>;
   }
 
   const keyIssues = complaint.key_issues ? JSON.parse(complaint.key_issues) : [];
@@ -92,15 +114,15 @@ export default function ComplaintDetail() {
     <div>
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/complaints" className="p-2 hover:bg-gray-200 rounded-lg"><ArrowLeft size={18} /></Link>
+        <Link to="/complaints" className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg dark:text-gray-300"><ArrowLeft size={18} /></Link>
         <div className="flex-1">
-          <h2 className="text-xl font-bold text-gray-800">{complaint.subject || 'Complaint Detail'}</h2>
-          <p className="text-xs text-gray-400">ID: {complaint.id}</p>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">{complaint.subject || 'Complaint Detail'}</h2>
+          <p className="text-xs text-gray-400 dark:text-gray-500">ID: {complaint.id}</p>
         </div>
         <div className="flex gap-2">
           <span className="px-3 py-1 rounded-full text-xs font-medium text-white" style={{ backgroundColor: SEVERITY_COLORS[complaint.severity] }}>{complaint.severity}</span>
           <span className="px-3 py-1 rounded-full text-xs font-medium text-white" style={{ backgroundColor: STATUS_COLORS[complaint.status] }}>{complaint.status}</span>
-          <span className="px-3 py-1 rounded-full text-xs bg-gray-100 font-medium">{complaint.channel}</span>
+          <span className="px-3 py-1 rounded-full text-xs bg-gray-100 dark:bg-gray-700 font-medium dark:text-gray-300">{complaint.channel}</span>
         </div>
       </div>
 
@@ -108,8 +130,8 @@ export default function ComplaintDetail() {
         {/* Left Column — Timeline + Actions */}
         <div className="lg:col-span-2 space-y-4">
           {/* AI Classification Card */}
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
               <Sparkles size={16} className="text-purple-500" /> AI Classification
               {complaint.ai_confidence_score && (
                 <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full ml-auto">
@@ -146,8 +168,8 @@ export default function ComplaintDetail() {
           </div>
 
           {/* Communication Timeline */}
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-4">
               <History size={16} /> Communication Timeline
             </h3>
             <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -169,7 +191,7 @@ export default function ComplaintDetail() {
             {/* Reply Box */}
             <div className="mt-4 flex gap-2">
               <input
-                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                className="flex-1 border dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 dark:text-gray-200"
                 placeholder="Type a response..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
@@ -199,24 +221,24 @@ export default function ComplaintDetail() {
         {/* Right Column — Info Panels */}
         <div className="space-y-4">
           {/* SLA Tracker */}
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
               <Clock size={16} /> SLA Tracker
             </h3>
             {complaint.sla_deadline ? (
               <SLABar deadline={complaint.sla_deadline} createdAt={complaint.created_at} breached={complaint.is_sla_breached} />
             ) : (
-              <p className="text-sm text-gray-400">No SLA set</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">No SLA set</p>
             )}
           </div>
 
           {/* Similar Complaints */}
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
               <Users size={16} /> Related Complaints
             </h3>
             {similar.length === 0 ? (
-              <p className="text-sm text-gray-400">No related complaints found</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">No related complaints found</p>
             ) : (
               <div className="space-y-2">
                 {similar.map((s) => (
@@ -236,13 +258,13 @@ export default function ComplaintDetail() {
           </div>
 
           {/* Audit Trail */}
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <h3 className="font-semibold text-gray-800 mb-3">Audit Trail</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">Audit Trail</h3>
             <div className="space-y-2 max-h-48 overflow-y-auto">
               {audit.map((a) => (
-                <div key={a.id} className="text-xs border-l-2 border-gray-200 pl-3 py-1">
-                  <p className="font-medium text-gray-700">{a.action}</p>
-                  <p className="text-gray-400">{a.performed_by} · {new Date(a.created_at).toLocaleString()}</p>
+                <div key={a.id} className="text-xs border-l-2 border-gray-200 dark:border-gray-600 pl-3 py-1">
+                  <p className="font-medium text-gray-700 dark:text-gray-300">{a.action}</p>
+                  <p className="text-gray-400 dark:text-gray-500">{a.performed_by} · {new Date(a.created_at).toLocaleString()}</p>
                 </div>
               ))}
             </div>
@@ -253,8 +275,8 @@ export default function ComplaintDetail() {
       {/* AI Response Modal */}
       {showAiModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 mx-4">
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Sparkles className="text-purple-500" /> AI Generated Response</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-2xl p-6 mx-4">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 dark:text-gray-100"><Sparkles className="text-purple-500" /> AI Generated Response</h3>
             <div className="flex gap-2 mb-3">
               {['formal', 'empathetic', 'neutral'].map((t) => (
                 <button key={t} onClick={() => { setAiTone(t); handleGenerateResponse(); }}
@@ -263,7 +285,7 @@ export default function ComplaintDetail() {
                 </button>
               ))}
             </div>
-            <textarea className="w-full border rounded-lg p-3 text-sm h-48" value={aiDraft} onChange={(e) => setAiDraft(e.target.value)} />
+            <textarea className="w-full border dark:border-gray-600 rounded-lg p-3 text-sm h-48 bg-white dark:bg-gray-700 dark:text-gray-200" value={aiDraft} onChange={(e) => setAiDraft(e.target.value)} />
             {aiActions.length > 0 && (
               <div className="mt-3">
                 <p className="text-xs font-medium text-gray-500 mb-1">Suggested Actions:</p>
@@ -273,7 +295,7 @@ export default function ComplaintDetail() {
               </div>
             )}
             <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => setShowAiModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+              <button onClick={() => setShowAiModal(false)} className="px-4 py-2 border dark:border-gray-600 rounded-lg text-sm dark:text-gray-300">Cancel</button>
               <button onClick={() => handleSendMessage(aiDraft)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Send Response</button>
             </div>
           </div>
@@ -298,7 +320,7 @@ function SLABar({ deadline, createdAt, breached }) {
 
   return (
     <div>
-      <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+      <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
       </div>
       <div className="flex justify-between mt-1 text-xs text-gray-500">
