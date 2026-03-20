@@ -3,8 +3,8 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://complaintiq:complaintiq@localhost:5432/complaintiq"
-    DATABASE_URL_SYNC: str = "postgresql://complaintiq:complaintiq@localhost:5432/complaintiq"
+    DATABASE_URL: str = "postgresql+asyncpg://ideahackathondb_user:63z6UnxTkhBEQAy1dwEas5ujTd1Hp0Xl@dpg-d6s0hv7afjfc73emln90-a.oregon-postgres.render.com/ideahackathondb"
+    DATABASE_URL_SYNC: str = "postgresql://ideahackathondb_user:63z6UnxTkhBEQAy1dwEas5ujTd1Hp0Xl@dpg-d6s0hv7afjfc73emln90-a.oregon-postgres.render.com/ideahackathondb"
     GEMINI_API_KEY: str = ""
     JWT_SECRET: str = "change-me-in-production"
     CORS_ORIGINS: str = "http://localhost:3000"
