@@ -3,13 +3,15 @@ from datetime import datetime, timedelta, timezone
 from google import genai
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import logging
 from app.config import get_settings
 from app.models.complaint import Complaint
 from app.schemas.schemas import RootCauseInsight
 
 settings = get_settings()
-client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
+client = (
+    genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
+)
 
 
 async def _get_complaint_stats(db: AsyncSession, days: int) -> dict:
@@ -23,7 +25,9 @@ async def _get_complaint_stats(db: AsyncSession, days: int) -> dict:
         .group_by(Complaint.category)
         .order_by(func.count(Complaint.id).desc())
     )
-    categories = [{"category": r[0] or "uncategorized", "count": r[1]} for r in cat_result.all()]
+    categories = [
+        {"category": r[0] or "uncategorized", "count": r[1]} for r in cat_result.all()
+    ]
 
     # Product counts
     prod_result = await db.execute(
@@ -44,9 +48,13 @@ async def _get_complaint_stats(db: AsyncSession, days: int) -> dict:
     severities = {r[0]: r[1] for r in sev_result.all()}
 
     # Average sentiment
-    avg_sent = (await db.execute(
-        select(func.avg(Complaint.sentiment_score)).where(Complaint.created_at >= since)
-    )).scalar()
+    avg_sent = (
+        await db.execute(
+            select(func.avg(Complaint.sentiment_score)).where(
+                Complaint.created_at >= since
+            )
+        )
+    ).scalar()
 
     total = sum(c["count"] for c in categories)
 
@@ -60,17 +68,26 @@ async def _get_complaint_stats(db: AsyncSession, days: int) -> dict:
     }
 
 
-async def generate_root_cause_insight(db: AsyncSession, days: int = 30) -> RootCauseInsight:
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+async def generate_root_cause_insight(
+    db: AsyncSession, days: int = 30
+) -> RootCauseInsight:
     """Generate AI-powered root cause insights."""
     stats = await _get_complaint_stats(db, days)
 
     if not client:
         return RootCauseInsight(
             summary=f"In the last {days} days, {stats['total_complaints']} complaints were received. "
-                    f"Top category: {stats['categories'][0]['category'] if stats['categories'] else 'N/A'}.",
+            f"Top category: {stats['categories'][0]['category'] if stats['categories'] else 'N/A'}.",
             top_categories=stats["categories"][:5],
             top_products=stats["products"][:5],
-            recommendations=["Review top complaint categories", "Investigate recurring product issues"],
+            recommendations=[
+                "Review top complaint categories",
+                "Investigate recurring product issues",
+            ],
         )
 
     prompt = f"""Analyze these customer complaint statistics and provide root cause insights:
@@ -94,6 +111,9 @@ Return ONLY the JSON object."""
             "response_mime_type": "application/json",
         },
     )
+
+    # Log the full response text so it appears in the uvicorn terminal output.
+    logger.info("Gemini response text: %s", response.text)
 
     result = json.loads(response.text)
     return RootCauseInsight(**result)
@@ -124,5 +144,8 @@ Write in a professional tone suitable for a management report."""
             "temperature": 0.4,
         },
     )
+
+    # Print to uvicorn terminal for debugging/inspection
+    logger.info("Gemini weekly summary response text:\n%s", response.text)
 
     return response.text

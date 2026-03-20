@@ -7,7 +7,6 @@ from app.database import get_db
 from app.models.complaint import Complaint
 from app.schemas.schemas import AnalyticsSummary, TrendDataPoint, RootCauseInsight
 from app.services.analytics import generate_root_cause_insight, generate_weekly_summary
-
 router = APIRouter()
 
 
