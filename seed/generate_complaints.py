@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 
 # --- Configuration ---
-DATABASE_URL = "postgres://ideahackathondb_user:63z6UnxTkhBEQAy1dwEas5ujTd1Hp0Xl@dpg-d6s0hv7afjfc73emln90-a.oregon-postgres.render.com/ideahackathondb"
+DATABASE_URL = "postgresql://idea_hackathon_db_user:y1jDs8hGhSmgG8Ga5VnxeOSRj57k4JXu@dpg-d81i937aqgkc73b0jjgg-a.oregon-postgres.render.com/idea_hackathon_db"
 
 CHANNELS = ["email", "twitter", "chat", "phone", "web_form"]
 CATEGORIES = [
