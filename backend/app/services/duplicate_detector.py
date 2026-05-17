@@ -15,11 +15,17 @@ async def generate_embedding(text: str) -> list[float] | None:
     """Generate an embedding vector for the given text."""
     if not client:
         return None
-    response = await client.aio.models.embed_content(
-        model=settings.EMBEDDING_MODEL,
-        contents=text,
-    )
-    return response.embeddings[0].values
+    try:
+        response = await client.aio.models.embed_content(
+            model="text-embedding-004",  # Some SDK versions enforce string literals here over config lookups
+            contents=text,
+        )
+        if response and response.embeddings and len(response.embeddings) > 0:
+            return response.embeddings[0].values
+    except Exception as e:
+        print(f"Embedding generation failed: {e}. Skipping pgvector similarity for this complaint.")
+        return None
+    return None
 
 
 async def find_similar(

@@ -38,24 +38,28 @@ async def generate_response(complaint, tone: str = "empathetic") -> GenerateResp
     if not client:
         return _fallback_response(complaint, tone)
 
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=RESPONSE_PROMPT.format(
-            subject=complaint.subject or "N/A",
-            category=complaint.category or "general",
-            severity=complaint.severity,
-            sentiment=complaint.sentiment_label or "unknown",
-            body=complaint.body,
-            tone=tone,
-        ),
-        config={
-            "temperature": 0.4,
-            "response_mime_type": "application/json",
-        },
-    )
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=RESPONSE_PROMPT.format(
+                subject=complaint.subject or "N/A",
+                category=complaint.category or "general",
+                severity=complaint.severity,
+                sentiment=complaint.sentiment_label or "unknown",
+                body=complaint.body,
+                tone=tone,
+            ),
+            config={
+                "temperature": 0.4,
+                "response_mime_type": "application/json",
+            },
+        )
 
-    result = json.loads(response.text)
-    return GenerateResponseResult(**result)
+        result = json.loads(response.text)
+        return GenerateResponseResult(**result)
+    except Exception as e:
+        print(f"Gemini API error during response generation: {e}. Using fallback templates.")
+        return _fallback_response(complaint, tone)
 
 
 def _fallback_response(complaint, tone: str) -> GenerateResponseResult:

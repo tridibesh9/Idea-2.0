@@ -55,17 +55,20 @@ async def classify_complaint(text: str, channel: str, image_base64: str | None =
             print(f"Error handling image part: {e}")
 
     # 3. Model Generation
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=contents,
-        config={
-            "temperature": 0.1,
-            "response_mime_type": "application/json",
-        },
-    )
-
-    result = json.loads(response.text)
-    return ComplaintClassification(**result)
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=contents,
+            config={
+                "temperature": 0.1,
+                "response_mime_type": "application/json",
+            },
+        )
+        result = json.loads(response.text)
+        return ComplaintClassification(**result)
+    except Exception as e:
+        print(f"Gemini API rate limit or error encountered: {e}. Falling back to offline rule-based engine.")
+        return _fallback_classify(safe_text)
 
 
 def _fallback_classify(text: str) -> ComplaintClassification:
@@ -76,7 +79,7 @@ def _fallback_classify(text: str) -> ComplaintClassification:
     category = "general"
     category_keywords = {
         "billing": ["bill", "charge", "payment", "invoice", "overcharged", "fee"],
-        "product_defect": ["broken", "defect", "malfunction", "not working", "bug", "error"],
+        "product_defect": ["broken", "defect", "malfunction", "not working", "bug", "error", "freezing"],
         "service_delay": ["delay", "slow", "waiting", "late", "took too long"],
         "account_access": ["login", "password", "locked", "access", "account"],
         "delivery": ["delivery", "shipping", "package", "arrived", "missing"],
@@ -90,14 +93,18 @@ def _fallback_classify(text: str) -> ComplaintClassification:
 
     # Basic severity
     severity = "medium"
-    if any(w in text_lower for w in ["urgent", "critical", "emergency", "immediately", "lawsuit", "legal"]):
+    if any(w in text_lower for w in ["urgent", "critical", "emergency", "immediately", "lawsuit", "legal", "fix immediately", "transact"]):
         severity = "critical"
     elif any(w in text_lower for w in ["frustrated", "angry", "unacceptable", "terrible"]):
         severity = "high"
 
     # Basic sentiment
-    negative_words = ["angry", "frustrated", "terrible", "worst", "hate", "awful", "unacceptable", "ridiculous"]
-    score = -0.5 if any(w in text_lower for w in negative_words) else -0.2
+    negative_words = ["angry", "frustrated", "terrible", "worst", "hate", "awful", "unacceptable", "ridiculous", "not working", "freezing", "immediately"]
+    score = -0.5 if any(w in text_lower for w in negative_words) else -0.1
+    if severity == "critical":
+        score = -0.8
+    if severity == "high" and score > -0.5:
+        score = -0.6
 
     # Regulatory flags
     flags = []
@@ -115,7 +122,7 @@ def _fallback_classify(text: str) -> ComplaintClassification:
         product=None,
         severity=severity,
         sentiment_score=score,
-        sentiment_label="negative" if score < -0.3 else "neutral",
+        sentiment_label="negative" if score <= -0.3 else "neutral",
         key_issues=[],
         confidence=0.5,
         regulatory_flags=flags,

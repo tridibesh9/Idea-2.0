@@ -1,8 +1,11 @@
 import json
 import uuid
+import os
+import base64
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -85,6 +88,19 @@ async def create_complaint(payload: ComplaintCreate, db: AsyncSession = Depends(
     )
     db.add(msg)
 
+    # Save attached image locally
+    if payload.image_data:
+        try:
+            os.makedirs("uploads", exist_ok=True)
+            image_data = payload.image_data
+            if "," in image_data:
+                image_data = image_data.split(",")[1]
+            file_path = f"uploads/{complaint.id}.jpg"
+            with open(file_path, "wb") as f:
+                f.write(base64.b64decode(image_data))
+        except Exception as e:
+            print(f"Failed to save image attachment: {e}")
+
     # Audit log
     audit = AuditLog(
         complaint_id=complaint.id,
@@ -144,6 +160,15 @@ async def list_complaints(
     complaints = result.scalars().all()
 
     return ComplaintListResponse(items=complaints, total=total, page=page, page_size=page_size)
+
+
+@router.get("/{id}/image")
+async def get_complaint_image(id: uuid.UUID):
+    """Retrieve the uploaded image for a complaint, if it exists."""
+    file_path = f"uploads/{id}.jpg"
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="image/jpeg")
+    return JSONResponse(status_code=404, content={"message": "Image not found"})
 
 
 @router.get("/{complaint_id}", response_model=ComplaintResponse)

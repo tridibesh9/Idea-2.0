@@ -5,7 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://idea_hackathon_db_user:y1jDs8hGhSmgG8Ga5VnxeOSRj57k4JXu@dpg-d81i937aqgkc73b0jjgg-a.oregon-postgres.render.com/idea_hackathon_db"
     DATABASE_URL_SYNC: str = "postgresql://idea_hackathon_db_user:y1jDs8hGhSmgG8Ga5VnxeOSRj57k4JXu@dpg-d81i937aqgkc73b0jjgg-a.oregon-postgres.render.com/idea_hackathon_db"
-    GEMINI_API_KEY: str = ""
+    GEMINI_API_KEY: str = "AIzaSyC71CIFrvxiEJOviny6fudy8wtGegS_NQk"
     JWT_SECRET: str = "change-me-in-production"
     CORS_ORIGINS: str = "http://localhost:3000"
     GEMINI_MODEL: str = "gemini-2.0-flash"
