@@ -11,6 +11,7 @@ class ComplaintCreate(BaseModel):
     body: str
     customer_name: str | None = None
     customer_email: str | None = None
+    image_data: str | None = Field(default=None, description="Base64 encoded image string")
 
 class ComplaintClassification(BaseModel):
     category: str | None = None

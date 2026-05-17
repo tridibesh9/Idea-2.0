@@ -54,8 +54,8 @@ async def create_complaint(payload: ComplaintCreate, db: AsyncSession = Depends(
     db.add(complaint)
     await db.flush()
 
-    # AI Classification
-    classification = await classify_complaint(payload.body, payload.channel)
+    # AI Classification (now passes image data if available)
+    classification = await classify_complaint(payload.body, payload.channel, payload.image_data)
     complaint.category = classification.category
     complaint.product = classification.product
     complaint.severity = classification.severity

@@ -1,20 +1,22 @@
 import json
+import base64
 from google import genai
 from app.config import get_settings
 from app.schemas.schemas import ComplaintClassification
+from app.services.pii_redactor import pii_redactor
 
 settings = get_settings()
 client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
 CLASSIFICATION_PROMPT = """You are a complaint classification AI for a financial services company. 
-Analyze the following customer complaint and return a JSON object with these fields:
+Analyze the following customer complaint (and any attached image, if provided) and return a JSON object with these fields:
 
 - category: one of [billing, product_defect, service_delay, account_access, delivery, refund, fraud, general]
 - product: the specific product mentioned (e.g., "Credit Card", "Savings Account", "Mobile App", "Loan")
 - severity: one of [critical, high, medium, low] based on urgency, financial impact, and customer distress
 - sentiment_score: float from -1.0 (very negative) to 1.0 (very positive)
 - sentiment_label: one of [positive, neutral, negative]
-- key_issues: array of 2-4 short issue descriptions extracted from the complaint
+- key_issues: array of 2-4 short issue descriptions extracted from the complaint text or image
 - confidence: your confidence in this classification from 0.0 to 1.0
 - regulatory_flags: array of flags if any apply: ["legal_mentioned", "regulator_mentioned", "ombudsman_mentioned", "lawsuit_mentioned", "discrimination_mentioned"]. Empty array if none.
 
@@ -24,14 +26,38 @@ Complaint: {text}
 Return ONLY the JSON object, no other text."""
 
 
-async def classify_complaint(text: str, channel: str) -> ComplaintClassification:
-    """Classify a complaint using the LLM."""
-    if not client:
-        return _fallback_classify(text)
+async def classify_complaint(text: str, channel: str, image_base64: str | None = None) -> ComplaintClassification:
+    """Classify a complaint using the LLM, with PII redaction and optional multimodal image support."""
+    # 1. PII Redaction Pipeline (Enterprise compliance)
+    safe_text = pii_redactor.redact(text)
 
+    if not client:
+        return _fallback_classify(safe_text)
+
+    # 2. Prepare Contents (Text + Optional Image)
+    prompt = CLASSIFICATION_PROMPT.format(text=safe_text, channel=channel)
+    contents = [prompt]
+
+    if image_base64:
+        try:
+            # The base64 string might come with a prefix like "data:image/jpeg;base64,...", so we strip it.
+            if "," in image_base64:
+                image_base64 = image_base64.split(",")[1]
+                
+            contents.append(
+                genai.types.Part.from_bytes(
+                    data=base64.b64decode(image_base64),
+                    mime_type="image/jpeg",
+                )
+            )
+        except Exception as e:
+            # If image parsing fails, fallback to handling just the text
+            print(f"Error handling image part: {e}")
+
+    # 3. Model Generation
     response = await client.aio.models.generate_content(
         model=settings.GEMINI_MODEL,
-        contents=CLASSIFICATION_PROMPT.format(text=text, channel=channel),
+        contents=contents,
         config={
             "temperature": 0.1,
             "response_mime_type": "application/json",

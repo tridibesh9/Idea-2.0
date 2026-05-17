@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Mail, MessageCircle, Twitter, Phone, Globe } from 'lucide-react';
+import { Send, Mail, MessageCircle, Twitter, Phone, Globe, Upload } from 'lucide-react';
 import { createComplaint } from '../api';
 
 const channels = [
@@ -13,15 +13,35 @@ const channels = [
 
 export default function SubmitComplaint() {
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
+  
   const [form, setForm] = useState({
     channel: 'web_form',
     subject: '',
     body: '',
     customer_name: '',
     customer_email: '',
+    image_data: null
   });
+  const [imagePreview, setImagePreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Create preview
+    const objectUrl = URL.createObjectURL(file);
+    setImagePreview(objectUrl);
+
+    // Convert to Base64 for the API payload
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      setForm({ ...form, image_data: reader.result });
+    };
+  };
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -86,6 +106,39 @@ export default function SubmitComplaint() {
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Complaint *</label>
           <textarea className="w-full border dark:border-gray-600 rounded-lg px-3 py-2 text-sm h-40 bg-white dark:bg-gray-700 dark:text-gray-200" placeholder="Describe the issue in detail..."
             value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+        </div>
+
+        {/* Multi-modal Image Upload */}
+        <div>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Attachment (Optional screenshot / image)</label>
+          <div className="flex items-center gap-4">
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-lg transition"
+            >
+              <Upload size={16} /> Choose Image
+            </button>
+            <input 
+              type="file" 
+              accept="image/jpeg, image/png, image/webp" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+            />
+          </div>
+          {imagePreview && (
+            <div className="mt-3 relative inline-block">
+              <img src={imagePreview} alt="Attachment preview" className="h-24 w-auto rounded border border-gray-300 dark:border-gray-600" />
+              <button 
+                type="button" 
+                onClick={() => { setImagePreview(null); setForm({ ...form, image_data: null }); }}
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
