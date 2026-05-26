@@ -13,3 +13,9 @@ python-dotenv==1.0.1
 alembic==1.13.0
 httpx
 apscheduler==3.10.4
+
+# Email handling
+imap-tools
+aiosmtplib
+mail-parser
+email-validator
