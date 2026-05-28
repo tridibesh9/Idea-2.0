@@ -3,6 +3,12 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+# ── Entity Schemas ──
+class EntityResponse(BaseModel):
+    entity_type: str
+    entity_value: str
+    is_sensitive: bool
+
 # ── Complaint Schemas ──
 
 
@@ -12,6 +18,7 @@ class ComplaintCreate(BaseModel):
     body: str
     customer_name: str | None = None
     customer_email: str | None = None
+    image_data: str | None = Field(default=None, description="Base64 encoded image string")
 
 
 class ComplaintClassification(BaseModel):
@@ -23,6 +30,7 @@ class ComplaintClassification(BaseModel):
     key_issues: list[str] = []
     confidence: float | None = None
     regulatory_flags: list[str] = []
+    next_best_action: str | None = None
 
 
 class ComplaintUpdate(BaseModel):
@@ -48,12 +56,15 @@ class ComplaintResponse(BaseModel):
     key_issues: str | None
     ai_confidence_score: float | None
     regulatory_flags: str | None
+    next_best_action: str | None
+    incident_group_id: str | None
     status: str
     sla_deadline: datetime | None
     is_sla_breached: bool
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
+    entities: list[EntityResponse] = []
 
     class Config:
         from_attributes = True

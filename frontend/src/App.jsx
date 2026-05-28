@@ -8,6 +8,7 @@ import ComplaintDetail from './pages/ComplaintDetail';
 import Analytics from './pages/Analytics';
 import Escalations from './pages/Escalations';
 import SubmitComplaint from './pages/SubmitComplaint';
+import IngestionSimulator from './pages/IngestionSimulator';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/escalations" element={<Escalations />} />
               <Route path="/submit" element={<SubmitComplaint />} />
+              <Route path="/simulator" element={<IngestionSimulator />} />
             </Routes>
           </Layout>
         </Router>

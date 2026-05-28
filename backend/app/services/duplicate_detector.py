@@ -17,15 +17,15 @@ async def generate_embedding(text: str) -> list[float] | None:
         return None
     try:
         response = await client.aio.models.embed_content(
-            model=settings.EMBEDDING_MODEL,
+            model="text-embedding-004",  # Some SDK versions enforce string literals here over config lookups
             contents=text,
         )
-        return response.embeddings[0].values
+        if response and response.embeddings and len(response.embeddings) > 0:
+            return response.embeddings[0].values
     except Exception as e:
-        import logging
-        logger = logging.getLogger("duplicate_detector")
-        logger.warning(f"Failed to generate embedding with Gemini: {e}")
+        print(f"Embedding generation failed: {e}. Skipping pgvector similarity for this complaint.")
         return None
+    return None
 
 
 async def find_similar(

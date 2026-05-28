@@ -29,6 +29,8 @@ class Complaint(Base):
     key_issues: Mapped[str | None] = mapped_column(Text)  # JSON array stored as text
     ai_confidence_score: Mapped[float | None] = mapped_column(Float)
     regulatory_flags: Mapped[str | None] = mapped_column(Text)  # JSON array stored as text
+    next_best_action: Mapped[str | None] = mapped_column(Text)
+    incident_group_id: Mapped[str | None] = mapped_column(String(100), index=True)
 
     # Status & SLA
     status: Mapped[str] = mapped_column(String(30), default="new")  # new, open, in_progress, escalated, resolved, closed
@@ -45,6 +47,7 @@ class Complaint(Base):
     embedding: Mapped["ComplaintEmbedding | None"] = relationship(back_populates="complaint", cascade="all, delete-orphan", uselist=False)
     customer: Mapped["Customer | None"] = relationship(back_populates="complaints", foreign_keys=[customer_id])
     agent: Mapped["Agent | None"] = relationship(back_populates="assigned_complaints", foreign_keys=[assigned_agent_id])
+    entities: Mapped[list["Entity"]] = relationship(back_populates="complaint", cascade="all, delete-orphan")
 
 
 class ComplaintMessage(Base):

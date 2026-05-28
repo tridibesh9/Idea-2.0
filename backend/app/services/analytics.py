@@ -144,6 +144,7 @@ async def generate_weekly_summary(db: AsyncSession) -> str:
 Cover: volume trends, top issues, severity distribution, and actionable recommendations.
 Write in a professional tone suitable for a management report."""
 
+    try:
         response = await client.aio.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=prompt,
@@ -151,9 +152,8 @@ Write in a professional tone suitable for a management report."""
                 "temperature": 0.4,
             },
         )
-
         logger.info("Gemini weekly summary response text:\n%s", response.text)
         return response.text
     except Exception as e:
-        logger.warning(f"Failed to generate weekly summary with Gemini, using fallback: {e}")
-        return fallback_summary
+        logger.error(f"Failed to generate weekly summary: {e}")
+        return "Weekly summary generation failed due to an AI API error (Rate limit or unavailable)."

@@ -1,8 +1,11 @@
 import json
 import uuid
+import os
+import base64
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,6 +14,7 @@ from app.database import get_db
 from app.models.complaint import Complaint, ComplaintMessage, ComplaintEmbedding
 from app.models.customer import Customer
 from app.models.audit_log import AuditLog
+from app.models.entity import Entity
 from app.schemas.schemas import (
     ComplaintCreate,
     ComplaintResponse,
@@ -28,6 +32,9 @@ from app.services.classifier import classify_complaint
 from app.services.duplicate_detector import find_similar, generate_embedding
 from app.services.response_generator import generate_response
 from app.services.email_sender import send_reply_email
+from app.services.pii_redactor import pii_redactor
+from app.services.entity_extractor import extract_entities
+from app.services.grouping_engine import assign_incident_group
 
 router = APIRouter()
 
@@ -63,8 +70,21 @@ async def create_complaint(
     db.add(complaint)
     await db.flush()
 
-    # AI Classification
-    classification = await classify_complaint(payload.body, payload.channel)
+    # PII Redaction
+    safe_text, sensitive_entities = pii_redactor.redact(payload.body)
+
+    # Business Entity Extraction
+    business_entities = await extract_entities(safe_text)
+
+    # Save entities
+    for token_type, tokens in sensitive_entities.items():
+        for val in tokens:
+            db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
+    for be in business_entities:
+        db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
+
+    # AI Classification (now passes image data if available)
+    classification = await classify_complaint(payload.body, payload.channel, payload.image_data)
     complaint.category = classification.category
     complaint.product = classification.product
     complaint.severity = classification.severity
@@ -73,6 +93,7 @@ async def create_complaint(
     complaint.key_issues = json.dumps(classification.key_issues)
     complaint.ai_confidence_score = classification.confidence
     complaint.regulatory_flags = json.dumps(classification.regulatory_flags)
+    complaint.next_best_action = getattr(classification, "next_best_action", None)
 
     # Set SLA deadline
     hours = SLA_HOURS.get(classification.severity, 24)
@@ -83,6 +104,10 @@ async def create_complaint(
     if embedding_vector:
         emb = ComplaintEmbedding(complaint_id=complaint.id, embedding=embedding_vector)
         db.add(emb)
+        await db.flush()
+        
+        # Grouping Engine: Assign Incident Group based on similarity
+        complaint.incident_group_id = await assign_incident_group(complaint.id, db)
 
     # Initial message
     msg = ComplaintMessage(
@@ -93,6 +118,19 @@ async def create_complaint(
         channel=payload.channel,
     )
     db.add(msg)
+
+    # Save attached image locally
+    if payload.image_data:
+        try:
+            os.makedirs("uploads", exist_ok=True)
+            image_data = payload.image_data
+            if "," in image_data:
+                image_data = image_data.split(",")[1]
+            file_path = f"uploads/{complaint.id}.jpg"
+            with open(file_path, "wb") as f:
+                f.write(base64.b64decode(image_data))
+        except Exception as e:
+            print(f"Failed to save image attachment: {e}")
 
     # Audit log
     audit = AuditLog(
@@ -123,6 +161,7 @@ async def create_complaint(
     except Exception:
         pass
 
+    await db.refresh(complaint, attribute_names=["entities"])
     return complaint
 
 
@@ -136,7 +175,7 @@ async def list_complaints(
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Complaint)
+    query = select(Complaint).options(selectinload(Complaint.entities))
     count_query = select(func.count(Complaint.id))
 
     if status:
@@ -166,9 +205,22 @@ async def list_complaints(
     )
 
 
+@router.get("/{id}/image")
+async def get_complaint_image(id: uuid.UUID):
+    """Retrieve the uploaded image for a complaint, if it exists."""
+    file_path = f"uploads/{id}.jpg"
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="image/jpeg")
+    return JSONResponse(status_code=404, content={"message": "Image not found"})
+
+
 @router.get("/{complaint_id}", response_model=ComplaintResponse)
 async def get_complaint(complaint_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Complaint).where(Complaint.id == complaint_id))
+    result = await db.execute(
+        select(Complaint)
+        .options(selectinload(Complaint.entities))
+        .where(Complaint.id == complaint_id)
+    )
     complaint = result.scalar_one_or_none()
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
@@ -181,7 +233,11 @@ async def update_complaint(
     payload: ComplaintUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Complaint).where(Complaint.id == complaint_id))
+    result = await db.execute(
+        select(Complaint)
+        .options(selectinload(Complaint.entities))
+        .where(Complaint.id == complaint_id)
+    )
     complaint = result.scalar_one_or_none()
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
@@ -220,6 +276,7 @@ async def update_complaint(
     except Exception:
         pass
 
+    await db.refresh(complaint, attribute_names=["entities"])
     return complaint
 
 

@@ -58,9 +58,7 @@ async def generate_response(complaint, tone: str = "empathetic") -> GenerateResp
         result = json.loads(response.text)
         return GenerateResponseResult(**result)
     except Exception as e:
-        import logging
-        logger = logging.getLogger("response_generator")
-        logger.warning(f"Failed to generate response with Gemini, using fallback: {e}")
+        print(f"Gemini API error during response generation: {e}. Using fallback templates.")
         return _fallback_response(complaint, tone)
 
 
