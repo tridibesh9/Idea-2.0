@@ -4,7 +4,8 @@ import {
   ArrowLeft, Clock, AlertCircle, Send, Sparkles, History, Users,
 } from 'lucide-react';
 import {
-  getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint, getHandoverReport
+  getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint,getHandoverReport
+  sendEmailReply,
 } from '../api';
 import { SkeletonCard } from '../components/Skeleton';
 
@@ -88,10 +89,18 @@ export default function ComplaintDetail() {
 
   async function handleSendMessage(content) {
     if (!content.trim()) return;
-    await addMessage(id, { sender_type: 'agent', sender_name: 'Agent', content });
-    setNewMessage('');
-    setShowAiModal(false);
-    loadAll();
+    try {
+      if (complaint && complaint.channel === 'email') {
+        await sendEmailReply(id, { reply_text: content, subject: complaint.subject });
+      } else {
+        await addMessage(id, { sender_type: 'agent', sender_name: 'Agent', content });
+      }
+      setNewMessage('');
+      setShowAiModal(false);
+      loadAll();
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   }
 
   async function handleStatusChange(status) {

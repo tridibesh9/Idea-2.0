@@ -78,19 +78,22 @@ async def generate_root_cause_insight(
     """Generate AI-powered root cause insights."""
     stats = await _get_complaint_stats(db, days)
 
-    if not client:
-        return RootCauseInsight(
-            summary=f"In the last {days} days, {stats['total_complaints']} complaints were received. "
-            f"Top category: {stats['categories'][0]['category'] if stats['categories'] else 'N/A'}.",
-            top_categories=stats["categories"][:5],
-            top_products=stats["products"][:5],
-            recommendations=[
-                "Review top complaint categories",
-                "Investigate recurring product issues",
-            ],
-        )
+    fallback_result = RootCauseInsight(
+        summary=f"In the last {days} days, {stats['total_complaints']} complaints were received. "
+        f"Top category: {stats['categories'][0]['category'] if stats['categories'] else 'N/A'}.",
+        top_categories=stats["categories"][:5],
+        top_products=stats["products"][:5],
+        recommendations=[
+            "Review top complaint categories",
+            "Investigate recurring product issues",
+        ],
+    )
 
-    prompt = f"""Analyze these customer complaint statistics and provide root cause insights:
+    if not client:
+        return fallback_result
+
+    try:
+        prompt = f"""Analyze these customer complaint statistics and provide root cause insights:
 
 Stats (last {days} days):
 {json.dumps(stats, indent=2)}
@@ -103,34 +106,38 @@ Return a JSON object with:
 
 Return ONLY the JSON object."""
 
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
-        config={
-            "temperature": 0.3,
-            "response_mime_type": "application/json",
-        },
-    )
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=prompt,
+            config={
+                "temperature": 0.3,
+                "response_mime_type": "application/json",
+            },
+        )
 
-    # Log the full response text so it appears in the uvicorn terminal output.
-    logger.info("Gemini response text: %s", response.text)
-
-    result = json.loads(response.text)
-    return RootCauseInsight(**result)
+        logger.info("Gemini response text: %s", response.text)
+        result = json.loads(response.text)
+        return RootCauseInsight(**result)
+    except Exception as e:
+        logger.warning(f"Failed to generate root cause insights with Gemini, using fallback: {e}")
+        return fallback_result
 
 
 async def generate_weekly_summary(db: AsyncSession) -> str:
     """Generate a weekly AI summary of complaint data."""
     stats = await _get_complaint_stats(db, 7)
 
-    if not client:
-        return (
-            f"Weekly Summary: {stats['total_complaints']} complaints received. "
-            f"Categories: {', '.join(c['category'] + ' (' + str(c['count']) + ')' for c in stats['categories'][:3])}. "
-            f"Average sentiment: {stats['avg_sentiment']}."
-        )
+    fallback_summary = (
+        f"Weekly Summary: {stats['total_complaints']} complaints received. "
+        f"Categories: {', '.join(c['category'] + ' (' + str(c['count']) + ')' for c in stats['categories'][:3])}. "
+        f"Average sentiment: {stats['avg_sentiment']}."
+    )
 
-    prompt = f"""Write a concise weekly complaint summary report (3-4 paragraphs) based on these stats:
+    if not client:
+        return fallback_summary
+
+    try:
+        prompt = f"""Write a concise weekly complaint summary report (3-4 paragraphs) based on these stats:
 
 {json.dumps(stats, indent=2)}
 

@@ -14,6 +14,8 @@ export const updateComplaint = (id, data) =>
 export const getTimeline = (id) => api.get(`/complaints/${id}/timeline`);
 export const addMessage = (id, data) =>
   api.post(`/complaints/${id}/messages`, data);
+export const sendEmailReply = (id, data) =>
+  api.post(`/complaints/${id}/send-reply`, data);
 export const getSimilar = (id) => api.get(`/complaints/${id}/similar`);
 export const generateResponse = (id, data) =>
   api.post(`/complaints/${id}/generate-response`, data);

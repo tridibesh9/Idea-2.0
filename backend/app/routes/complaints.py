@@ -25,10 +25,13 @@ from app.schemas.schemas import (
     GenerateResponseRequest,
     GenerateResponseResult,
     SimilarComplaint,
+    SendEmailReplyRequest,
+    SendEmailReplyResponse,
 )
 from app.services.classifier import classify_complaint
 from app.services.duplicate_detector import find_similar, generate_embedding
 from app.services.response_generator import generate_response
+from app.services.email_sender import send_reply_email
 from app.services.pii_redactor import pii_redactor
 from app.services.entity_extractor import extract_entities
 from app.services.grouping_engine import assign_incident_group
@@ -39,14 +42,20 @@ SLA_HOURS = {"critical": 4, "high": 8, "medium": 24, "low": 72}
 
 
 @router.post("", response_model=ComplaintResponse, status_code=201)
-async def create_complaint(payload: ComplaintCreate, db: AsyncSession = Depends(get_db)):
+async def create_complaint(
+    payload: ComplaintCreate, db: AsyncSession = Depends(get_db)
+):
     # Find or create customer
     customer = None
     if payload.customer_email:
-        result = await db.execute(select(Customer).where(Customer.email == payload.customer_email))
+        result = await db.execute(
+            select(Customer).where(Customer.email == payload.customer_email)
+        )
         customer = result.scalar_one_or_none()
         if not customer:
-            customer = Customer(name=payload.customer_name or "Unknown", email=payload.customer_email)
+            customer = Customer(
+                name=payload.customer_name or "Unknown", email=payload.customer_email
+            )
             db.add(customer)
             await db.flush()
 
@@ -128,7 +137,9 @@ async def create_complaint(payload: ComplaintCreate, db: AsyncSession = Depends(
         complaint_id=complaint.id,
         action="created",
         performed_by="system",
-        details=json.dumps({"channel": payload.channel, "classification": classification.model_dump()}),
+        details=json.dumps(
+            {"channel": payload.channel, "classification": classification.model_dump()}
+        ),
     )
     db.add(audit)
     await db.flush()
@@ -136,14 +147,17 @@ async def create_complaint(payload: ComplaintCreate, db: AsyncSession = Depends(
     # Broadcast via WebSocket
     try:
         from app.routes.websocket import manager
-        await manager.broadcast({
-            "type": "new_complaint",
-            "complaint_id": str(complaint.id),
-            "channel": payload.channel,
-            "subject": complaint.subject,
-            "severity": complaint.severity,
-            "category": complaint.category,
-        })
+
+        await manager.broadcast(
+            {
+                "type": "new_complaint",
+                "complaint_id": str(complaint.id),
+                "channel": payload.channel,
+                "subject": complaint.subject,
+                "severity": complaint.severity,
+                "category": complaint.category,
+            }
+        )
     except Exception:
         pass
 
@@ -178,11 +192,17 @@ async def list_complaints(
         count_query = count_query.where(Complaint.channel == channel)
 
     total = (await db.execute(count_query)).scalar()
-    query = query.order_by(Complaint.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    query = (
+        query.order_by(Complaint.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     result = await db.execute(query)
     complaints = result.scalars().all()
 
-    return ComplaintListResponse(items=complaints, total=total, page=page, page_size=page_size)
+    return ComplaintListResponse(
+        items=complaints, total=total, page=page, page_size=page_size
+    )
 
 
 @router.get("/{id}/image")
@@ -209,7 +229,9 @@ async def get_complaint(complaint_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 @router.patch("/{complaint_id}", response_model=ComplaintResponse)
 async def update_complaint(
-    complaint_id: uuid.UUID, payload: ComplaintUpdate, db: AsyncSession = Depends(get_db)
+    complaint_id: uuid.UUID,
+    payload: ComplaintUpdate,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Complaint)
@@ -241,13 +263,16 @@ async def update_complaint(
     # Broadcast status change via WebSocket
     try:
         from app.routes.websocket import manager
-        await manager.broadcast({
-            "type": "status_change",
-            "complaint_id": str(complaint.id),
-            "status": complaint.status,
-            "severity": complaint.severity,
-            "subject": complaint.subject,
-        })
+
+        await manager.broadcast(
+            {
+                "type": "status_change",
+                "complaint_id": str(complaint.id),
+                "status": complaint.status,
+                "severity": complaint.severity,
+                "subject": complaint.subject,
+            }
+        )
     except Exception:
         pass
 
@@ -265,7 +290,9 @@ async def get_timeline(complaint_id: uuid.UUID, db: AsyncSession = Depends(get_d
     return result.scalars().all()
 
 
-@router.post("/{complaint_id}/messages", response_model=MessageResponse, status_code=201)
+@router.post(
+    "/{complaint_id}/messages", response_model=MessageResponse, status_code=201
+)
 async def add_message(
     complaint_id: uuid.UUID, payload: MessageCreate, db: AsyncSession = Depends(get_db)
 ):
@@ -328,3 +355,105 @@ async def generate_ai_response(
     await db.flush()
 
     return response
+
+
+@router.post(
+    "/{complaint_id}/send-reply", response_model=SendEmailReplyResponse, status_code=200
+)
+async def send_email_reply(
+    complaint_id: uuid.UUID,
+    payload: SendEmailReplyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send an email reply to the customer for a complaint."""
+    # Get complaint with customer info
+    result = await db.execute(
+        select(Complaint)
+        .where(Complaint.id == complaint_id)
+        .options(
+            selectinload(Complaint.customer),
+            selectinload(Complaint.messages),
+        )
+    )
+    complaint = result.scalar_one_or_none()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if not complaint.customer or not complaint.customer.email:
+        raise HTTPException(status_code=400, detail="Customer email not available")
+
+    if complaint.channel != "email":
+        raise HTTPException(
+            status_code=400, detail="Can only send replies for email channel complaints"
+        )
+
+    # Get the first email message from customer for threading
+    original_message_id = complaint.external_id
+    original_references = ""
+
+    # Prepare subject
+    subject = payload.subject or complaint.subject or "Your Support Request"
+
+    # Send email
+    success = await send_reply_email(
+        recipient=complaint.customer.email,
+        subject=subject,
+        body_text=payload.reply_text,
+        original_complaint_id=str(complaint_id),
+        original_message_id=original_message_id,
+        original_references=original_references,
+    )
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+    # Record the reply message in database
+    msg = ComplaintMessage(
+        complaint_id=complaint_id,
+        sender_type="agent",
+        sender_name="Support Agent",
+        content=payload.reply_text,
+        channel="email",
+    )
+    db.add(msg)
+
+    # Update complaint status if needed
+    if complaint.status == "new":
+        complaint.status = "in_progress"
+    complaint.updated_at = datetime.now(timezone.utc)
+
+    # Create audit log
+    audit = AuditLog(
+        complaint_id=complaint_id,
+        action="email_reply_sent",
+        performed_by="agent",
+        details=json.dumps(
+            {
+                "recipient": complaint.customer.email,
+                "subject": subject,
+            }
+        ),
+    )
+    db.add(audit)
+    await db.commit()
+
+    # Broadcast via WebSocket
+    try:
+        from app.routes.websocket import manager
+
+        await manager.broadcast(
+            {
+                "type": "reply_sent",
+                "complaint_id": str(complaint_id),
+                "status": complaint.status,
+                "subject": complaint.subject,
+            }
+        )
+    except Exception:
+        pass
+
+    return SendEmailReplyResponse(
+        success=True,
+        message=f"Email sent to {complaint.customer.email}",
+        complaint_id=complaint_id,
+    )

@@ -1,12 +1,15 @@
 import random
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas.schemas import ComplaintCreate, ComplaintResponse
 from app.routes.complaints import create_complaint
+from app.config import get_settings
 
 router = APIRouter()
+settings = get_settings()
 
 # ── Realistic templates per channel ──
 
@@ -71,6 +74,43 @@ async def simulate_channel_intake(channel: str, db: AsyncSession = Depends(get_d
 
     template = _pick_template(channel)
     name, email = random.choice(CUSTOMER_NAMES)
+
+    # If channel is email and email listener is enabled, run raw EML mock simulation to test email listener!
+    if channel == "email" and settings.EMAIL_LISTENER_ENABLED:
+        is_mock_mode = (settings.IMAP_HOST == "localhost") or (not settings.IMAP_EMAIL or not settings.IMAP_PASSWORD)
+        if is_mock_mode:
+            import os
+            import uuid
+            import asyncio
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            from sqlalchemy import select
+            from app.models.complaint import Complaint
+
+            # Construct raw EML
+            msg = MIMEMultipart()
+            msg["From"] = f"{name} <{email}>"
+            msg["To"] = settings.SUPPORT_EMAIL
+            msg["Subject"] = template["subject"]
+            msg["Message-ID"] = f"<{uuid.uuid4()}@client.example.com>"
+            msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+            msg.attach(MIMEText(template["body"], "plain", "utf-8"))
+
+            os.makedirs("mock_emails/inbox", exist_ok=True)
+            filename = f"incoming_{uuid.uuid4().hex[:8]}.eml"
+            filepath = os.path.join("mock_emails/inbox", filename)
+            with open(filepath, "wb") as f:
+                f.write(msg.as_bytes())
+
+            # Poll database to wait for background listener to process and create it
+            for _ in range(30):  # Wait up to 3 seconds
+                await asyncio.sleep(0.1)
+                result = await db.execute(
+                    select(Complaint).where(Complaint.external_id == msg["Message-ID"])
+                )
+                complaint = result.scalar_one_or_none()
+                if complaint:
+                    return complaint
 
     payload = ComplaintCreate(
         channel=channel,

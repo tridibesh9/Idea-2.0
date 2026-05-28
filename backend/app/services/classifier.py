@@ -65,14 +65,14 @@ async def classify_complaint(text: str, channel: str, image_base64: str | None =
                 "response_mime_type": "application/json",
             },
         )
+
         result = json.loads(response.text)
         return ComplaintClassification(**result)
     except Exception as e:
-        print(f"Gemini API rate limit or error encountered: {e}. Falling back to offline rule-based engine.")
-        return _fallback_classify(safe_text)
-
-    # We do NOT return extracted_entities here, because classify_complaint is just for classification.
-    # The route handler will be responsible for handling the extracted_entities from pii_redactor.
+        import logging
+        logger = logging.getLogger("classifier")
+        logger.warning(f"Failed to classify complaint with Gemini, using fallback: {e}")
+        return _fallback_classify(text)
 
 
 def _fallback_classify(text: str) -> ComplaintClassification:

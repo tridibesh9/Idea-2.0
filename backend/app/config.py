@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -11,10 +11,28 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     EMBEDDING_MODEL: str = "text-embedding-004"
 
-    class Config:
-        env_file = ".env"
+    # Email Configuration
+    IMAP_HOST: str = "imap.gmail.com"
+    IMAP_PORT: int = 993
+    IMAP_EMAIL: str = "support@example.com"
+    IMAP_PASSWORD: str = ""
+
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_EMAIL: str = "support@example.com"
+    SMTP_PASSWORD: str = ""
+
+    SUPPORT_EMAIL: str = "support@example.com"
+    SUPPORT_NAME: str = "ComplaintIQ Support"
+
+    # Email listener enabled/disabled
+    EMAIL_LISTENER_ENABLED: bool = True
+    EMAIL_CHECK_INTERVAL: int = 5  # seconds
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+

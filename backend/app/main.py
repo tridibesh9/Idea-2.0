@@ -10,11 +10,15 @@ from app.config import get_settings
 from app.routes import complaints, analytics, escalations, audit
 from app.routes import reports, websocket as ws_route, simulator
 from app.services.sla_checker import check_sla_breaches
+from app.services.email_listener import start_email_listener, stop_email_listener
 
 settings = get_settings()
 logger = logging.getLogger("complaintiq")
 
 scheduler = AsyncIOScheduler()
+
+# Global reference to email listener task
+_email_listener_task = None
 
 
 @asynccontextmanager
@@ -23,8 +27,37 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(check_sla_breaches, "interval", minutes=5, id="sla_checker")
     scheduler.start()
     logger.info("SLA background scheduler started")
+
+    # Start email listener if enabled
+    global _email_listener_task
+    if settings.EMAIL_LISTENER_ENABLED:
+        try:
+            # Create a broadcast callback for WebSocket
+            async def broadcast_email(data):
+                try:
+                    from app.routes.websocket import manager
+
+                    await manager.broadcast(data)
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast email event: {e}")
+
+            _email_listener_task = asyncio.create_task(
+                start_email_listener(broadcast_email)
+            )
+            logger.info("Email listener task started")
+        except Exception as e:
+            logger.error(f"Failed to start email listener: {e}")
+
     yield
+
     # Shutdown
+    await stop_email_listener()
+    if _email_listener_task:
+        _email_listener_task.cancel()
+        try:
+            await _email_listener_task
+        except asyncio.CancelledError:
+            pass
     scheduler.shutdown(wait=False)
 
 

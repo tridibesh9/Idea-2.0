@@ -11,6 +11,7 @@ class EntityResponse(BaseModel):
 
 # ── Complaint Schemas ──
 
+
 class ComplaintCreate(BaseModel):
     channel: str = Field(..., description="email, chat, twitter, phone, web_form")
     subject: str | None = None
@@ -18,6 +19,7 @@ class ComplaintCreate(BaseModel):
     customer_name: str | None = None
     customer_email: str | None = None
     image_data: str | None = Field(default=None, description="Base64 encoded image string")
+
 
 class ComplaintClassification(BaseModel):
     category: str | None = None
@@ -30,11 +32,13 @@ class ComplaintClassification(BaseModel):
     regulatory_flags: list[str] = []
     next_best_action: str | None = None
 
+
 class ComplaintUpdate(BaseModel):
     status: str | None = None
     assigned_agent_id: uuid.UUID | None = None
     severity: str | None = None
     category: str | None = None
+
 
 class ComplaintResponse(BaseModel):
     id: uuid.UUID
@@ -65,6 +69,7 @@ class ComplaintResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ComplaintListResponse(BaseModel):
     items: list[ComplaintResponse]
     total: int
@@ -74,11 +79,13 @@ class ComplaintListResponse(BaseModel):
 
 # ── Message Schemas ──
 
+
 class MessageCreate(BaseModel):
     sender_type: str = "agent"  # customer, agent, system
     sender_name: str | None = None
     content: str
     channel: str | None = None
+
 
 class MessageResponse(BaseModel):
     id: uuid.UUID
@@ -95,8 +102,10 @@ class MessageResponse(BaseModel):
 
 # ── AI Response Schemas ──
 
+
 class GenerateResponseRequest(BaseModel):
     tone: str = "empathetic"  # formal, empathetic, neutral
+
 
 class GenerateResponseResult(BaseModel):
     draft_text: str
@@ -104,7 +113,22 @@ class GenerateResponseResult(BaseModel):
     suggested_actions: list[str] = []
 
 
+# ── Email Reply Schema ──
+
+
+class SendEmailReplyRequest(BaseModel):
+    reply_text: str = Field(..., description="The reply message to send")
+    subject: str | None = None
+
+
+class SendEmailReplyResponse(BaseModel):
+    success: bool
+    message: str
+    complaint_id: uuid.UUID
+
+
 # ── Similar Complaint Schema ──
+
 
 class SimilarComplaint(BaseModel):
     complaint_id: uuid.UUID
@@ -118,11 +142,13 @@ class SimilarComplaint(BaseModel):
 
 # ── Analytics Schemas ──
 
+
 class TrendDataPoint(BaseModel):
     date: str
     count: int
     category: str | None = None
     channel: str | None = None
+
 
 class AnalyticsSummary(BaseModel):
     total_open: int
@@ -130,6 +156,7 @@ class AnalyticsSummary(BaseModel):
     total_sla_breached: int
     avg_resolution_hours: float | None
     avg_sentiment: float | None
+
 
 class RootCauseInsight(BaseModel):
     summary: str
@@ -139,6 +166,7 @@ class RootCauseInsight(BaseModel):
 
 
 # ── Escalation Schemas ──
+
 
 class EscalationResponse(BaseModel):
     id: uuid.UUID
@@ -154,6 +182,7 @@ class EscalationResponse(BaseModel):
 
 
 # ── Audit Schemas ──
+
 
 class AuditLogResponse(BaseModel):
     id: uuid.UUID
