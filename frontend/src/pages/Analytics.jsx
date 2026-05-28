@@ -15,6 +15,7 @@ export default function Analytics() {
   const [weeklySummary, setWeeklySummary] = useState('');
   const [groupBy, setGroupBy] = useState('category');
   const [loading, setLoading] = useState(true);
+  const [generatingRCA, setGeneratingRCA] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => { loadData(); }, [groupBy]);
@@ -36,6 +37,18 @@ export default function Analytics() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleGenerateRCA() {
+    setGeneratingRCA(true);
+    try {
+      const rRes = await getRootCause({ days: 30 });
+      setRootCause(rRes.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setGeneratingRCA(false);
     }
   }
 
@@ -101,8 +114,17 @@ export default function Analytics() {
         </div>
 
         {/* Root Cause */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">AI Root Cause Analysis</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 relative">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200">AI Deep Root Cause Analysis</h3>
+            <button 
+              onClick={handleGenerateRCA} 
+              disabled={generatingRCA}
+              className="px-3 py-1 bg-purple-600 text-white rounded-lg text-xs hover:bg-purple-700 disabled:opacity-50"
+            >
+              {generatingRCA ? 'Analyzing...' : 'Generate Deep RCA'}
+            </button>
+          </div>
           {rootCause ? (
             <div>
               <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">{rootCause.summary}</p>
@@ -110,7 +132,7 @@ export default function Analytics() {
                 <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top Categories</p>
                 {rootCause.top_categories?.map((c, i) => (
                   <div key={i} className="flex justify-between text-sm py-1 dark:text-gray-300">
-                    <span>{c.category}</span>
+                    <span>{c.name || c.category}</span>
                     <span className="font-medium">{c.count}</span>
                   </div>
                 ))}
@@ -131,12 +153,21 @@ export default function Analytics() {
           {rootCause?.top_categories?.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie data={rootCause.top_categories} dataKey="count" nameKey="category" cx="50%" cy="50%" innerRadius={50} outerRadius={90} label>
+                <Pie 
+                  data={rootCause.top_categories.map(c => ({ ...c, displayLabel: c.name || c.category }))} 
+                  dataKey="count" 
+                  nameKey="displayLabel" 
+                  cx="50%" 
+                  cy="50%" 
+                  innerRadius={50} 
+                  outerRadius={90} 
+                  label={({ displayLabel, count }) => `${displayLabel} (${count})`}
+                >
                   {rootCause.top_categories.map((_, i) => (
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value, name, props) => [value, props.payload.displayLabel]} />
               </PieChart>
             </ResponsiveContainer>
           ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}

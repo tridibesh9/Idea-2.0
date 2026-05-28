@@ -19,6 +19,7 @@ Analyze the following customer complaint (and any attached image, if provided) a
 - key_issues: array of 2-4 short issue descriptions extracted from the complaint text or image
 - confidence: your confidence in this classification from 0.0 to 1.0
 - regulatory_flags: array of flags if any apply: ["legal_mentioned", "regulator_mentioned", "ombudsman_mentioned", "lawsuit_mentioned", "discrimination_mentioned"]. Empty array if none.
+- next_best_action: A concise sentence suggesting the best action for the agent to take (e.g., "Issue full refund immediately", "Escalate to technical support team").
 
 Channel: {channel}
 Complaint: {text}
@@ -29,7 +30,7 @@ Return ONLY the JSON object, no other text."""
 async def classify_complaint(text: str, channel: str, image_base64: str | None = None) -> ComplaintClassification:
     """Classify a complaint using the LLM, with PII redaction and optional multimodal image support."""
     # 1. PII Redaction Pipeline (Enterprise compliance)
-    safe_text = pii_redactor.redact(text)
+    safe_text, _ = pii_redactor.redact(text)
 
     if not client:
         return _fallback_classify(safe_text)
@@ -69,6 +70,9 @@ async def classify_complaint(text: str, channel: str, image_base64: str | None =
     except Exception as e:
         print(f"Gemini API rate limit or error encountered: {e}. Falling back to offline rule-based engine.")
         return _fallback_classify(safe_text)
+
+    # We do NOT return extracted_entities here, because classify_complaint is just for classification.
+    # The route handler will be responsible for handling the extracted_entities from pii_redactor.
 
 
 def _fallback_classify(text: str) -> ComplaintClassification:
@@ -126,4 +130,5 @@ def _fallback_classify(text: str) -> ComplaintClassification:
         key_issues=[],
         confidence=0.5,
         regulatory_flags=flags,
+        next_best_action="Investigate issue and respond to customer."
     )

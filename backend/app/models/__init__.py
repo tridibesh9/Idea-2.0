@@ -5,6 +5,7 @@ from app.models.category import Category
 from app.models.escalation import Escalation
 from app.models.sla_config import SLAConfig
 from app.models.audit_log import AuditLog
+from app.models.entity import Entity
 
 __all__ = [
     "Complaint",
@@ -16,4 +17,5 @@ __all__ = [
     "Escalation",
     "SLAConfig",
     "AuditLog",
+    "Entity",
 ]

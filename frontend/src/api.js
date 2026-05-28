@@ -27,6 +27,7 @@ export const getWeeklySummary = () => api.get("/analytics/weekly-summary");
 
 // ── Escalations ──
 export const getEscalations = (params) => api.get("/escalations", { params });
+export const getHandoverReport = (id) => api.get(`/escalations/handover/${id}`);
 
 // ── Audit ──
 export const getAuditTrail = (complaintId) => api.get(`/audit/${complaintId}`);

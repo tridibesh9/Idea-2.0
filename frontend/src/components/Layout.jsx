@@ -23,6 +23,7 @@ const navItems = [
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/escalations', icon: AlertTriangle, label: 'Escalations' },
   { to: '/submit', icon: PlusCircle, label: 'Submit' },
+  { to: '/simulator', icon: Zap, label: 'Simulator Demo' },
 ];
 
 const channels = ['email', 'twitter', 'chat', 'phone'];

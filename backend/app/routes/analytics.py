@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.complaint import Complaint
 from app.schemas.schemas import AnalyticsSummary, TrendDataPoint, RootCauseInsight
-from app.services.analytics import generate_root_cause_insight, generate_weekly_summary
+from app.services.analytics import generate_weekly_summary
+from app.services.rca_generator import generate_rca
 router = APIRouter()
 
 
@@ -84,7 +85,16 @@ async def get_root_cause(
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ):
-    return await generate_root_cause_insight(db, days)
+    # Pass days/limit down if we want, but for deep RCA we use limit=50.
+    result = await generate_rca(db, limit=50)
+    if not result:
+        return RootCauseInsight(
+            summary="No complaints found to analyze.",
+            top_categories=[],
+            top_products=[],
+            recommendations=[]
+        )
+    return RootCauseInsight(**result)
 
 
 @router.get("/weekly-summary")

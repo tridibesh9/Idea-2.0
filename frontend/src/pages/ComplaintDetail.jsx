@@ -4,7 +4,7 @@ import {
   ArrowLeft, Clock, AlertCircle, Send, Sparkles, History, Users,
 } from 'lucide-react';
 import {
-  getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint,
+  getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint, getHandoverReport
 } from '../api';
 import { SkeletonCard } from '../components/Skeleton';
 
@@ -26,6 +26,9 @@ export default function ComplaintDetail() {
   const [aiTone, setAiTone] = useState('empathetic');
   const [aiActions, setAiActions] = useState([]);
   const [generating, setGenerating] = useState(false);
+  const [showHandoverModal, setShowHandoverModal] = useState(false);
+  const [handoverReport, setHandoverReport] = useState('');
+  const [generatingHandover, setGeneratingHandover] = useState(false);
 
   // New message
   const [newMessage, setNewMessage] = useState('');
@@ -65,6 +68,21 @@ export default function ComplaintDetail() {
       console.error(err);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleGenerateHandover() {
+    setGeneratingHandover(true);
+    setShowHandoverModal(true);
+    setHandoverReport('Generating handover report... Please wait.');
+    try {
+      const res = await getHandoverReport(id);
+      setHandoverReport(res.data.report);
+    } catch (err) {
+      setHandoverReport('Failed to generate handover report.');
+      console.error(err);
+    } finally {
+      setGeneratingHandover(false);
     }
   }
 
@@ -165,6 +183,13 @@ export default function ComplaintDetail() {
                 </div>
               </div>
             )}
+            
+            {complaint.next_best_action && (
+              <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/30 rounded-lg border border-purple-100 dark:border-purple-800">
+                <span className="text-purple-600 dark:text-purple-400 text-xs font-semibold block mb-1">🎯 Next Best Action</span>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{complaint.next_best_action}</p>
+              </div>
+            )}
           </div>
 
           {/* Communication Timeline */}
@@ -229,6 +254,11 @@ export default function ComplaintDetail() {
             {complaint.status !== 'escalated' && complaint.status !== 'resolved' && (
               <button onClick={() => handleStatusChange('escalated')} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700">Escalate</button>
             )}
+            {complaint.status === 'escalated' && (
+              <button onClick={handleGenerateHandover} disabled={generatingHandover} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+                {generatingHandover ? 'Generating...' : 'Generate Handover Report'}
+              </button>
+            )}
             {complaint.status === 'new' && (
               <button onClick={() => handleStatusChange('in_progress')} className="px-4 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600">Start Working</button>
             )}
@@ -248,6 +278,25 @@ export default function ComplaintDetail() {
               <p className="text-sm text-gray-400 dark:text-gray-500">No SLA set</p>
             )}
           </div>
+
+          {/* Extracted Entities */}
+          {complaint.entities && complaint.entities.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+              <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
+                <Sparkles size={16} className="text-blue-500" /> Extracted Entities
+              </h3>
+              <div className="space-y-2">
+                {complaint.entities.map((ent, i) => (
+                  <div key={i} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                    <span className="text-gray-500 font-medium text-xs">{ent.entity_type}</span>
+                    <span className={`font-mono text-xs ${ent.is_sensitive ? 'text-red-600 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                      {ent.entity_value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Similar Complaints */}
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
@@ -298,22 +347,45 @@ export default function ComplaintDetail() {
               {['formal', 'empathetic', 'neutral'].map((t) => (
                 <button key={t} onClick={() => { setAiTone(t); handleGenerateResponse(); }}
                   className={`px-3 py-1 rounded-full text-xs border ${aiTone === t ? 'bg-purple-600 text-white border-purple-600' : 'text-gray-600'}`}>
-                  {t}
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
                 </button>
               ))}
             </div>
-            <textarea className="w-full border dark:border-gray-600 rounded-lg p-3 text-sm h-48 bg-white dark:bg-gray-700 dark:text-gray-200" value={aiDraft} onChange={(e) => setAiDraft(e.target.value)} />
+            <textarea
+              className="w-full h-40 p-3 border dark:border-gray-600 rounded-lg text-sm bg-gray-50 dark:bg-gray-700 dark:text-gray-200"
+              value={aiDraft}
+              onChange={(e) => setAiDraft(e.target.value)}
+            />
             {aiActions.length > 0 && (
               <div className="mt-3">
-                <p className="text-xs font-medium text-gray-500 mb-1">Suggested Actions:</p>
-                <ul className="text-xs text-gray-600 space-y-1">
-                  {aiActions.map((a, i) => <li key={i}>• {a}</li>)}
-                </ul>
+                <p className="text-xs font-semibold mb-1 text-gray-500">Suggested Actions:</p>
+                <div className="flex gap-2 flex-wrap">
+                  {aiActions.map((act, i) => (
+                    <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-600 rounded text-xs text-gray-700 dark:text-gray-300">{act}</span>
+                  ))}
+                </div>
               </div>
             )}
-            <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => setShowAiModal(false)} className="px-4 py-2 border dark:border-gray-600 rounded-lg text-sm dark:text-gray-300">Cancel</button>
-              <button onClick={() => handleSendMessage(aiDraft)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Send Response</button>
+            <div className="mt-4 flex justify-end gap-3">
+              <button onClick={() => setShowAiModal(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">Cancel</button>
+              <button onClick={() => handleSendMessage(aiDraft)} className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">Send Response</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Handover Report Modal */}
+      {showHandoverModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-2xl p-6 mx-4">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 dark:text-gray-100">
+              <Users className="text-blue-500" /> Escalation Handover Report
+            </h3>
+            <div className="w-full h-80 p-4 border dark:border-gray-600 rounded-lg text-sm bg-gray-50 dark:bg-gray-700 dark:text-gray-200 overflow-y-auto whitespace-pre-wrap font-mono">
+              {handoverReport}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setShowHandoverModal(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-500">Close</button>
             </div>
           </div>
         </div>
