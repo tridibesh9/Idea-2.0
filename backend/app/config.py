@@ -14,12 +14,12 @@ class Settings(BaseSettings):
     # Email Configuration
     IMAP_HOST: str = "imap.gmail.com"
     IMAP_PORT: int = 993
-    IMAP_EMAIL: str = "bytpemysticop@gmail.com"
+    IMAP_EMAIL: str = "bytemysticop@gmail.com"
     IMAP_PASSWORD: str = "dfyzptbztxsimwxm"
 
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_EMAIL: str = "bytpemysticop@gmail.com"
+    SMTP_EMAIL: str = "bytemysticop@gmail.com"
     SMTP_PASSWORD: str = "dfyzptbztxsimwxm"
 
     SUPPORT_EMAIL: str = "support@example.com"
