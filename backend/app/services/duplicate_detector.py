@@ -15,11 +15,17 @@ async def generate_embedding(text: str) -> list[float] | None:
     """Generate an embedding vector for the given text."""
     if not client:
         return None
-    response = await client.aio.models.embed_content(
-        model=settings.EMBEDDING_MODEL,
-        contents=text,
-    )
-    return response.embeddings[0].values
+    try:
+        response = await client.aio.models.embed_content(
+            model=settings.EMBEDDING_MODEL,
+            contents=text,
+        )
+        return response.embeddings[0].values
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("duplicate_detector")
+        logger.warning(f"Failed to generate embedding with Gemini: {e}")
+        return None
 
 
 async def find_similar(

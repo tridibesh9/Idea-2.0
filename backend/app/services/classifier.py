@@ -29,17 +29,23 @@ async def classify_complaint(text: str, channel: str) -> ComplaintClassification
     if not client:
         return _fallback_classify(text)
 
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=CLASSIFICATION_PROMPT.format(text=text, channel=channel),
-        config={
-            "temperature": 0.1,
-            "response_mime_type": "application/json",
-        },
-    )
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=CLASSIFICATION_PROMPT.format(text=text, channel=channel),
+            config={
+                "temperature": 0.1,
+                "response_mime_type": "application/json",
+            },
+        )
 
-    result = json.loads(response.text)
-    return ComplaintClassification(**result)
+        result = json.loads(response.text)
+        return ComplaintClassification(**result)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("classifier")
+        logger.warning(f"Failed to classify complaint with Gemini, using fallback: {e}")
+        return _fallback_classify(text)
 
 
 def _fallback_classify(text: str) -> ComplaintClassification:

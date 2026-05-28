@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     SUPPORT_NAME: str = "ComplaintIQ Support"
 
     # Email listener enabled/disabled
-    EMAIL_LISTENER_ENABLED: bool = False
-    EMAIL_CHECK_INTERVAL: int = 60  # seconds
+    EMAIL_LISTENER_ENABLED: bool = True
+    EMAIL_CHECK_INTERVAL: int = 5  # seconds
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -52,9 +52,7 @@ class EmailSender:
             True if successful, False otherwise
         """
         try:
-            if not self.email or not self.password:
-                logger.error("SMTP credentials not configured")
-                return False
+            is_mock_mode = (self.host == "localhost") or (not self.email or not self.password)
 
             # Create message
             msg = MIMEMultipart("alternative")
@@ -83,6 +81,21 @@ class EmailSender:
             if body_html:
                 part2 = MIMEText(body_html, "html", "utf-8")
                 msg.attach(part2)
+
+            if is_mock_mode:
+                import os
+                import uuid
+                os.makedirs("mock_emails/sent", exist_ok=True)
+                filename = f"sent_{uuid.uuid4().hex[:8]}.eml"
+                filepath = os.path.join("mock_emails/sent", filename)
+                with open(filepath, "wb") as f:
+                    f.write(msg.as_bytes())
+                logger.info(f"[MOCK] Outgoing email saved to {filepath} successfully")
+                return True
+
+            if not self.email or not self.password:
+                logger.error("SMTP credentials not configured")
+                return False
 
             # Send via SMTP
             use_tls = self.port == 465

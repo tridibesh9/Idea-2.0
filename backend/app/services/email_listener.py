@@ -8,7 +8,7 @@ import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from imap_tools import MailBox, MailBoxUnencrypted, AND
+from imap_tools import MailBox, MailBoxUnencrypted, MailBoxStartTls, AND
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -55,7 +55,7 @@ class EmailListener:
                     return MailBox(self.host, port=self.port).login(self.email, self.password)
                 elif self.port == 143:
                     try:
-                        return MailBoxTls(self.host, port=self.port).login(self.email, self.password)
+                        return MailBoxStartTls(self.host, port=self.port).login(self.email, self.password)
                     except Exception:
                         return MailBoxUnencrypted(self.host, port=self.port).login(self.email, self.password)
                 else:
@@ -172,7 +172,11 @@ class EmailListener:
                     )
                     msg = result.scalar_one_or_none()
                     if msg:
-                        complaint = msg.complaint
+                        # Query complaint explicitly to avoid DetachedInstanceError in SQLAlchemy async context
+                        result = await db.execute(
+                            select(Complaint).where(Complaint.id == msg.complaint_id)
+                        )
+                        complaint = result.scalar_one_or_none()
 
                 # If not a reply, create new complaint
                 if not complaint:
@@ -293,62 +297,96 @@ class EmailListener:
 
     async def run(self):
         """Main loop for listening to emails."""
-        if not self.email or not self.password:
-            logger.warning("Email credentials not configured, listener disabled")
-            return
+        # Run in mock mode if host is localhost or credentials are not configured
+        is_mock_mode = (self.host == "localhost") or (not self.email or not self.password)
+
+        if is_mock_mode:
+            logger.info("Email listener running in MOCK mode (monitoring mock_emails/inbox directory)")
+            import os
+            os.makedirs("mock_emails/inbox", exist_ok=True)
+            os.makedirs("mock_emails/sent", exist_ok=True)
+        else:
+            if not self.email or not self.password:
+                logger.warning("Email credentials not configured, listener disabled")
+                return
 
         self.is_running = True
         connection_retries = 0
         max_retries = 5
 
         while self.is_running:
-            mailbox = None
-            try:
-                # Connect to IMAP
-                mailbox = await self.connect()
-                connection_retries = 0
-
-                # Monitor for emails
-                while self.is_running:
-                    # Fetch unseen emails
-                    emails = await self.fetch_unseen_emails(mailbox)
-
-                    # Process each email
-                    for uid, email_bytes in emails:
-                        try:
-                            await self.process_email(email_bytes, uid)
-                            await self.mark_as_seen(mailbox, uid)
-                        except Exception as e:
-                            logger.error(f"Error processing email {uid}: {e}")
-
-                    # Wait before checking again
+            if is_mock_mode:
+                try:
+                    import os
+                    inbox_dir = "mock_emails/inbox"
+                    if os.path.exists(inbox_dir):
+                        files = os.listdir(inbox_dir)
+                        for filename in files:
+                            if not self.is_running:
+                                break
+                            filepath = os.path.join(inbox_dir, filename)
+                            if os.path.isfile(filepath):
+                                try:
+                                    logger.info(f"Mock email listener found file: {filename}")
+                                    with open(filepath, "rb") as f:
+                                        email_bytes = f.read()
+                                    await self.process_email(email_bytes, uid=filename)
+                                    os.remove(filepath)
+                                    logger.info(f"Processed and removed mock email: {filename}")
+                                except Exception as e:
+                                    logger.error(f"Error processing mock email {filename}: {e}")
+                    
                     await asyncio.sleep(settings.EMAIL_CHECK_INTERVAL)
+                except Exception as e:
+                    logger.error(f"Mock email listener error: {e}")
+                    await asyncio.sleep(5)
+            else:
+                mailbox = None
+                try:
+                    # Connect to IMAP
+                    mailbox = await self.connect()
+                    connection_retries = 0
 
-            except Exception as e:
-                logger.error(f"Email listener error: {e}")
-                connection_retries += 1
+                    # Monitor for emails
+                    while self.is_running:
+                        # Fetch unseen emails
+                        emails = await self.fetch_unseen_emails(mailbox)
 
-                if connection_retries > max_retries:
-                    logger.error("Max retries reached, stopping listener")
-                    self.is_running = False
-                else:
-                    # Wait before retrying
-                    wait_time = min(60 * connection_retries, 300)  # Max 5 minutes
-                    logger.info(f"Retrying in {wait_time} seconds...")
-                    await asyncio.sleep(wait_time)
+                        # Process each email
+                        for uid, email_bytes in emails:
+                            try:
+                                await self.process_email(email_bytes, uid)
+                                await self.mark_as_seen(mailbox, uid)
+                            except Exception as e:
+                                logger.error(f"Error processing email {uid}: {e}")
 
-            finally:
-                if mailbox:
-                    try:
+                        # Wait before checking again
+                        await asyncio.sleep(settings.EMAIL_CHECK_INTERVAL)
 
-                        def _close():
-                            mailbox.logout()
+                except Exception as e:
+                    logger.error(f"Email listener error: {e}")
+                    connection_retries += 1
 
-                        await asyncio.get_event_loop().run_in_executor(
-                            self._executor, _close
-                        )
-                    except Exception:
-                        pass
+                    if connection_retries > max_retries:
+                        logger.error("Max retries reached, stopping listener")
+                        self.is_running = False
+                    else:
+                        # Wait before retrying
+                        wait_time = min(60 * connection_retries, 300)  # Max 5 minutes
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(wait_time)
+
+                finally:
+                    if mailbox:
+                        try:
+                            def _close():
+                                mailbox.logout()
+
+                            await asyncio.get_event_loop().run_in_executor(
+                                self._executor, _close
+                            )
+                        except Exception:
+                            pass
 
     async def stop(self):
         """Stop the email listener."""
