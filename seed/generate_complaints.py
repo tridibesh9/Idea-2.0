@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 
 # --- Configuration ---
-DATABASE_URL = "postgresql://complaintiq_user:wppt2j121gQNmKnbWR8GZVhEsrozBpbQ@dpg-d8a47iml51nc73ep5kkg-a.singapore-postgres.render.com/complaintiq"
+DATABASE_URL = "postgresql://complaintiq_msvo_user:bSXUALiju1eUDOncZ1lmrZvLpzMHsZKz@dpg-d8c5tqcm0tmc73f2o29g-a.ohio-postgres.render.com/complaintiq_msvo"
 
 CHANNELS = ["email", "twitter", "chat", "phone", "web_form"]
 CATEGORIES = [

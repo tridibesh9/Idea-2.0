@@ -4,7 +4,7 @@ import {
   ArrowLeft, Clock, AlertCircle, Send, Sparkles, History, Users,
 } from 'lucide-react';
 import {
-  getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint,getHandoverReport
+  getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint, getHandoverReport,
   sendEmailReply,
 } from '../api';
 import { SkeletonCard } from '../components/Skeleton';

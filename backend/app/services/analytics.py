@@ -136,8 +136,7 @@ async def generate_weekly_summary(db: AsyncSession) -> str:
     if not client:
         return fallback_summary
 
-    try:
-        prompt = f"""Write a concise weekly complaint summary report (3-4 paragraphs) based on these stats:
+    prompt = f"""Write a concise weekly complaint summary report (3-4 paragraphs) based on these stats:
 
 {json.dumps(stats, indent=2)}
 
