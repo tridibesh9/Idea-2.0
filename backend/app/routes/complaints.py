@@ -408,7 +408,12 @@ async def send_email_reply(
     elif complaint.channel == "telegram":
         chat_id = complaint.external_id
         subject = payload.subject or complaint.subject or "Reply"
-        success = await send_telegram_reply(chat_id, payload.reply_text)
+        markup = {
+            "inline_keyboard": [
+                [{"text": f"↩️ Reply to Ticket {str(complaint_id)[:8]}", "callback_data": f"resume:{str(complaint_id)}"}]
+            ]
+        }
+        success = await send_telegram_reply(chat_id, payload.reply_text, reply_markup=markup)
 
     if not success:
         raise HTTPException(status_code=500, detail="Failed to send reply")
