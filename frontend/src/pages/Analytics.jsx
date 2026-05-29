@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { getTrends, getRootCause, getWeeklySummary } from '../api';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, Sparkles } from 'lucide-react';
+import { getTrends, getRootCause, getWeeklySummary, getComplaintClusters } from '../api';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar, PieChart, Pie, Cell, ScatterChart, Scatter,
 } from 'recharts';
 import { SkeletonCard } from '../components/Skeleton';
 
 const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899', '#14b8a6'];
 
 export default function Analytics() {
+  const navigate = useNavigate();
   const [trends, setTrends] = useState([]);
   const [rootCause, setRootCause] = useState(null);
   const [weeklySummary, setWeeklySummary] = useState('');
   const [groupBy, setGroupBy] = useState('category');
+  const [clusters, setClusters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generatingRCA, setGeneratingRCA] = useState(false);
   const [error, setError] = useState(null);
@@ -24,14 +27,16 @@ export default function Analytics() {
     setLoading(true);
     setError(null);
     try {
-      const [tRes, rRes, wRes] = await Promise.all([
+      const [tRes, rRes, wRes, cRes] = await Promise.all([
         getTrends({ days: 30, group_by: groupBy }),
         getRootCause({ days: 30 }),
         getWeeklySummary(),
+        getComplaintClusters(),
       ]);
       setTrends(tRes.data);
       setRootCause(rRes.data);
       setWeeklySummary(wRes.data.summary);
+      setClusters(cRes.data);
     } catch (err) {
       setError('Failed to load analytics data');
       console.error(err);
@@ -171,6 +176,71 @@ export default function Analytics() {
               </PieChart>
             </ResponsiveContainer>
           ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
+        </div>
+
+        {/* Semantic Clustering Scatter Plot */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
+          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Complaint Semantic Clusters (PCA Map)</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+            High-dimensional embeddings of complaints projected into 2D space using Principal Component Analysis (PCA) and grouped using K-Means.
+          </p>
+          {clusters.length === 0 ? (
+            <p className="text-sm text-gray-400 dark:text-gray-500 py-12 text-center">
+              Not enough complaint data (minimum 3 complaints with vector embeddings required) to calculate clusters.
+            </p>
+          ) : (
+            <div className="h-[350px] relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" dataKey="x" name="PCA Component 1" hide />
+                  <YAxis type="number" dataKey="y" name="PCA Component 2" hide />
+                  <Tooltip
+                    cursor={{ strokeDasharray: '3 3' }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-white dark:bg-gray-900 border dark:border-gray-700 p-3 rounded-lg shadow-lg text-xs max-w-sm">
+                            <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">{data.subject}</p>
+                            <p className="text-gray-500 dark:text-gray-400 mb-1">
+                              Category: <span className="font-medium text-blue-500">{data.category}</span>
+                            </p>
+                            <p className="text-gray-500 dark:text-gray-400 mb-1">
+                              Status: <span className="font-medium capitalize">{data.status}</span>
+                            </p>
+                            <p className="text-purple-600 dark:text-purple-400 font-semibold mt-1">
+                              {data.cluster_label}
+                            </p>
+                            <p className="text-[10px] text-gray-400 mt-2 italic">Click point to view details</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Scatter
+                    name="Complaints"
+                    data={clusters}
+                    onClick={(node) => {
+                      if (node && node.id) {
+                        navigate(`/complaints/${node.id}`);
+                      }
+                    }}
+                  >
+                    {clusters.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[entry.cluster_id % COLORS.length]}
+                        className="cursor-pointer hover:scale-125 transition-transform"
+                        r={8}
+                      />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         {/* Weekly Summary */}

@@ -100,6 +100,10 @@ async def create_complaint(
     hours = SLA_HOURS.get(classification.severity, 24)
     complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=hours)
 
+    # Smart Routing Auto Assignment
+    from app.services.smart_router import route_complaint
+    await route_complaint(complaint, db)
+
     # Generate and store embedding
     embedding_vector = await generate_embedding(payload.body)
     if embedding_vector:
@@ -344,13 +348,22 @@ async def generate_ai_response(
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
-    response = await generate_response(complaint, payload.tone)
+    response = await generate_response(
+        complaint, 
+        tone=payload.tone, 
+        db=db, 
+        instruction=payload.instruction, 
+        current_draft=payload.current_draft
+    )
 
     audit = AuditLog(
         complaint_id=complaint_id,
         action="ai_response_generated",
         performed_by="system",
-        details=json.dumps({"tone": payload.tone}),
+        details=json.dumps({
+            "tone": payload.tone,
+            "instruction_refined": payload.instruction is not None
+        }),
     )
     db.add(audit)
     await db.flush()

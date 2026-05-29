@@ -17,9 +17,14 @@ async def generate_embedding(text: str) -> list[float] | None:
     if not client:
         return None
     try:
+        config = {}
+        if "gemini-embedding" in settings.EMBEDDING_MODEL:
+            config["output_dimensionality"] = 768
+            
         response = await client.aio.models.embed_content(
-            model="text-embedding-004",  # Some SDK versions enforce string literals here over config lookups
+            model=settings.EMBEDDING_MODEL,
             contents=text,
+            config=config,
         )
         if response and response.embeddings and len(response.embeddings) > 0:
             return response.embeddings[0].values
@@ -60,7 +65,7 @@ async def find_similar(
     result = await db.execute(
         query,
         {
-            "source_embedding": str(source_embedding.embedding),
+            "source_embedding": str(source_embedding.embedding.tolist()) if hasattr(source_embedding.embedding, "tolist") else str(source_embedding.embedding),
             "complaint_id": str(complaint_id),
             "threshold": threshold,
             "limit": limit,

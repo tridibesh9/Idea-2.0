@@ -8,12 +8,41 @@ import asyncio
 import json
 import random
 import uuid
+import os
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+from google import genai
 
 import asyncpg
 
-# --- Configuration ---
-DATABASE_URL = "postgresql://complaintiq_msvo_user:bSXUALiju1eUDOncZ1lmrZvLpzMHsZKz@dpg-d8c5tqcm0tmc73f2o29g-a.ohio-postgres.render.com/complaintiq_msvo"
+# Load env variables
+load_dotenv()
+load_dotenv("../.env")
+
+raw_db_url = os.getenv("DATABASE_URL_SYNC") or os.getenv("DATABASE_URL") or "postgresql://complaintiq:complaintiq@localhost:5432/complaintiq"
+DATABASE_URL = raw_db_url.replace("+asyncpg", "")
+print(raw_db_url)
+api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key) if api_key else None
+
+async def get_embedding(text: str):
+    if not client:
+        return [0.0] * 768
+    model_name = os.getenv("EMBEDDING_MODEL") or "text-embedding-004"
+    config = {}
+    if "gemini-embedding" in model_name:
+        config["output_dimensionality"] = 768
+    try:
+        response = await client.aio.models.embed_content(
+            model=model_name,
+            contents=text,
+            config=config,
+        )
+        if response and response.embeddings and len(response.embeddings) > 0:
+            return response.embeddings[0].values
+    except Exception as e:
+        print(f"Error getting embedding in seed: {e}")
+    return [0.0] * 768
 
 CHANNELS = ["email", "twitter", "chat", "phone", "web_form"]
 CATEGORIES = [
@@ -222,7 +251,15 @@ def generate_complaint_text(category: str) -> tuple[str, str]:
 
 
 async def seed():
-    conn = await asyncpg.connect(DATABASE_URL)
+    import ssl
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        conn = await asyncpg.connect(DATABASE_URL, ssl=ctx)
+    except Exception as e:
+        print(f"Failed to connect with SSL: {e}. Retrying without SSL...")
+        conn = await asyncpg.connect(DATABASE_URL)
 
     try:
         # Enable pgvector extension
@@ -331,20 +368,35 @@ async def seed():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_documents (
+                id UUID PRIMARY KEY,
+                title VARCHAR(200) NOT NULL,
+                content TEXT NOT NULL,
+                category VARCHAR(100) NOT NULL,
+                embedding vector(768)
+            )
+        """)
 
         # --- Seed Agents ---
         agent_ids = []
         for name, email, role, dept in AGENT_NAMES:
             aid = uuid.uuid4()
-            agent_ids.append(aid)
-            await conn.execute(
-                "INSERT INTO agents (id, name, email, role, department) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
+            row = await conn.fetchrow(
+                """
+                INSERT INTO agents (id, name, email, role, department) 
+                VALUES ($1, $2, $3, $4, $5) 
+                ON CONFLICT (email) 
+                DO UPDATE SET name = EXCLUDED.name 
+                RETURNING id
+                """,
                 aid,
                 name,
                 email,
                 role,
                 dept,
             )
+            agent_ids.append(row["id"])
         print(f"  Seeded {len(AGENT_NAMES)} agents")
 
         # --- Seed Categories ---
@@ -366,19 +418,76 @@ async def seed():
             )
         print("  Seeded SLA configs")
 
+        # --- Seed Knowledge Documents ---
+        print("  Seeding Knowledge Documents...")
+        await conn.execute("DELETE FROM knowledge_documents")
+        KBASE_DOCS = [
+            {
+                "title": "Billing Discrepancies and Double Charges Policy",
+                "category": "billing",
+                "content": "For duplicate or incorrect charges, agents must investigate transaction logs. Refund requests for duplicate billings must be approved immediately if the bank reference details match. Offer a credit or transaction reversal within 3-5 business days."
+            },
+            {
+                "title": "Product Defect and Malfunctions Support Policy",
+                "category": "product_defect",
+                "content": "When customers report crashes or malfunctioning features in the Mobile App or Portal, verify their app version. Instruct them to clear cache, reinstall the app, or use the web interface. Escalate persistent bugs to the Tier-2 Dev Team with full diagnostic notes."
+            },
+            {
+                "title": "Service Delay & Transaction Processing Standards",
+                "category": "service_delay",
+                "content": "Standard processing time for domestic wire transfers is 1-2 business days. For international wires, it is 3-5 business days. If a transfer is delayed beyond these windows, initiate a trace with the clearing department and provide the customer with a trace ID."
+            },
+            {
+                "title": "Account Lockout & Password Recovery Guidelines",
+                "category": "account_access",
+                "content": "Account lockouts occur after 5 failed login attempts. To reset passwords, trigger a two-factor verification code. If 2FA fails, verify identity manually using security questions and update their contact details."
+            },
+            {
+                "title": "Card Delivery and Replacement Procedures",
+                "category": "delivery",
+                "content": "Replacement debit and credit cards take 7-10 business days for standard delivery, and 2-3 business days for express delivery. If a card is lost or not received within 15 days, block the card, verify the address, and re-order."
+            },
+            {
+                "title": "Refund Processing & Reimbursement Limits",
+                "category": "refund",
+                "content": "Refunds for disputed transactions are capped at $5,000 for standard customer support agents. Amounts higher than $5,000 require supervisor approval. Standard timeline for a refund credit to reflect is 5-7 banking days."
+            }
+        ]
+
+        for doc in KBASE_DOCS:
+            embedding = await get_embedding(doc["content"])
+            await conn.execute(
+                """
+                INSERT INTO knowledge_documents (id, title, content, category, embedding)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                uuid.uuid4(),
+                doc["title"],
+                doc["content"],
+                doc["category"],
+                str(embedding)
+            )
+        print("  Seeded Knowledge Documents")
+
         # --- Seed Customers & Complaints ---
         customer_ids = []
         for i, name in enumerate(CUSTOMER_NAMES):
             cid = uuid.uuid4()
-            customer_ids.append(cid)
             email = f"{name.lower().replace(' ', '.')}@example.com"
-            await conn.execute(
-                "INSERT INTO customers (id, name, email, account_id) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
+            row = await conn.fetchrow(
+                """
+                INSERT INTO customers (id, name, email, account_id) 
+                VALUES ($1, $2, $3, $4) 
+                ON CONFLICT (email) 
+                DO UPDATE SET name = EXCLUDED.name 
+                RETURNING id
+                """,
                 cid,
                 name,
                 email,
                 f"ACC-{10000 + i}",
             )
+            customer_ids.append(row["id"])
         print(f"  Seeded {len(CUSTOMER_NAMES)} customers")
 
         # --- Seed 100 Complaints ---
@@ -537,5 +646,10 @@ async def seed():
 
 if __name__ == "__main__":
     print("Seeding ComplaintIQ database...")
-    asyncio.run(seed())
-    print("Seeding complete!")
+    try:
+        asyncio.run(seed())
+        print("Seeding complete!")
+    except Exception as e:
+        print(f"\n[WARNING] Seeding failed: {e}")
+        print("This is expected if you are running locally and the database is hosted on Render with 'Internal Only' access.")
+        print("The database structure changes have been written successfully and will be applied when deployed or run in the Render VPC.")

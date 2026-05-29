@@ -250,6 +250,10 @@ class EmailListener:
                         hours=hours
                     )
 
+                    # Smart Routing Auto Assignment
+                    from app.services.smart_router import route_complaint
+                    await route_complaint(complaint, db)
+
                     # Generate embedding
                     try:
                         embedding_vector = await generate_embedding(parsed.body_text)

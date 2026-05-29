@@ -6,9 +6,11 @@ export default function useWebSocket(onMessage) {
   const reconnectTimer = useRef(null);
 
   const connect = useCallback(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}/ws`);
+    const viteApiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+    const wsProtocol = viteApiUrl.startsWith('https') ? 'wss:' : 'ws:';
+    const parsedHost = viteApiUrl.replace(/^https?:\/\//, '');
+    const wsUrl = `${wsProtocol}//${parsedHost}/ws`;
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setConnected(true);

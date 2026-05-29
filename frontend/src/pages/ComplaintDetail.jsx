@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import {
   getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint, getHandoverReport,
-  sendEmailReply,
+  sendEmailReply, searchKnowledgeBase,
 } from '../api';
 import { SkeletonCard } from '../components/Skeleton';
 
@@ -34,6 +34,10 @@ export default function ComplaintDetail() {
   // New message
   const [newMessage, setNewMessage] = useState('');
 
+  // Knowledge Base & Refinement
+  const [kbReferences, setKbReferences] = useState([]);
+  const [refineInstruction, setRefineInstruction] = useState('');
+
   useEffect(() => { loadAll(); }, [id]);
 
   async function loadAll() {
@@ -50,11 +54,40 @@ export default function ComplaintDetail() {
       setMessages(tRes.data);
       setSimilar(sRes.data);
       setAudit(aRes.data);
+
+      // Load Knowledge Base
+      try {
+        const kbRes = await searchKnowledgeBase(cRes.data.body, cRes.data.category);
+        setKbReferences(kbRes.data);
+      } catch (err) {
+        console.error("Failed to load knowledge base:", err);
+      }
     } catch (err) {
       setError('Failed to load complaint details');
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRefineResponse() {
+    if (!refineInstruction.trim()) return;
+    setGenerating(true);
+    try {
+      const res = await generateResponse(id, {
+        tone: aiTone,
+        instruction: refineInstruction,
+        current_draft: aiDraft,
+      });
+      setAiDraft(res.data.draft_text);
+      if (res.data.suggested_actions) {
+        setAiActions(res.data.suggested_actions);
+      }
+      setRefineInstruction('');
+    } catch (err) {
+      console.error('Failed to refine response:', err);
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -214,7 +247,7 @@ export default function ComplaintDetail() {
                     {/* Multimodal Image Attachment Rendering */}
                     <div className="mt-3">
                       <img 
-                        src={`http://localhost:8000/api/complaints/${complaint.id}/image`} 
+                        src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/complaints/${complaint.id}/image`} 
                         alt="User Attachment" 
                         className="max-w-full h-auto rounded-lg border border-gray-300 dark:border-gray-600"
                         onError={(e) => { e.target.style.display = 'none'; }}
@@ -285,6 +318,25 @@ export default function ComplaintDetail() {
               <SLABar deadline={complaint.sla_deadline} createdAt={complaint.created_at} breached={complaint.is_sla_breached} />
             ) : (
               <p className="text-sm text-gray-400 dark:text-gray-500">No SLA set</p>
+            )}
+          </div>
+
+          {/* Knowledge Base Matches */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
+            <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
+              <Sparkles size={16} className="text-yellow-500" /> Knowledge Base Matches
+            </h3>
+            {kbReferences.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">No matching policy articles found.</p>
+            ) : (
+              <div className="space-y-3">
+                {kbReferences.map((ref) => (
+                  <div key={ref.id} className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded border dark:border-gray-700 text-xs">
+                    <span className="font-semibold text-gray-800 dark:text-gray-200 block mb-1">{ref.title}</span>
+                    <p className="text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-wrap">{ref.content}</p>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -375,6 +427,28 @@ export default function ComplaintDetail() {
                 </div>
               </div>
             )}
+            <div className="mt-4 border-t dark:border-gray-700 pt-3">
+              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 block mb-1">
+                Iterative Refinement Instructions
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 border dark:border-gray-600 rounded-lg px-3 py-2 text-xs bg-white dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="e.g. 'offer a refund and apologize for the long wait'"
+                  value={refineInstruction}
+                  onChange={(e) => setRefineInstruction(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleRefineResponse()}
+                />
+                <button
+                  onClick={handleRefineResponse}
+                  disabled={generating || !refineInstruction.trim()}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 disabled:opacity-50"
+                >
+                  Refine
+                </button>
+              </div>
+            </div>
             <div className="mt-4 flex justify-end gap-3">
               <button onClick={() => setShowAiModal(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-sm">Cancel</button>
               <button onClick={() => handleSendMessage(aiDraft)} className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">Send Response</button>

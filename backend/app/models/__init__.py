@@ -6,6 +6,7 @@ from app.models.escalation import Escalation
 from app.models.sla_config import SLAConfig
 from app.models.audit_log import AuditLog
 from app.models.entity import Entity
+from app.models.knowledge import KnowledgeDocument
 
 __all__ = [
     "Complaint",
@@ -18,4 +19,5 @@ __all__ = [
     "SLAConfig",
     "AuditLog",
     "Entity",
+    "KnowledgeDocument",
 ]

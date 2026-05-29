@@ -33,22 +33,95 @@ Return a JSON object with:
 Return ONLY the JSON object."""
 
 
-async def generate_response(complaint, tone: str = "empathetic") -> GenerateResponseResult:
+REFINEMENT_PROMPT = """You are a customer service response drafting AI for a financial services company.
+You need to refine an existing draft response based on custom instructions from the agent.
+
+Original Complaint Details:
+- Subject: {subject}
+- Category: {category}
+- Sentiment: {sentiment}
+- Complaint Text: {body}
+
+Current Draft Response:
+{current_draft}
+
+Refinement Instructions:
+{instruction}
+
+Adjust the draft response based on the refinement instructions, maintaining a professional and {tone} tone. Keep it concise (150-250 words) and address the customer's issues.
+
+Also provide 2-3 updated suggested next-best actions for the agent.
+
+Return a JSON object with:
+- draft_text: the refined response text
+- tone: the tone used
+- suggested_actions: array of action strings
+
+Return ONLY the JSON object."""
+
+
+async def generate_response(
+    complaint, 
+    tone: str = "empathetic", 
+    db = None, 
+    instruction: str = None, 
+    current_draft: str = None
+) -> GenerateResponseResult:
     """Generate a draft response for a complaint."""
     if not client:
         return _fallback_response(complaint, tone)
 
     try:
-        response = await client.aio.models.generate_content(
-            model=settings.GEMINI_MODEL,
-            contents=RESPONSE_PROMPT.format(
+        if instruction and current_draft:
+            # Refinement prompt
+            contents = REFINEMENT_PROMPT.format(
+                subject=complaint.subject or "N/A",
+                category=complaint.category or "general",
+                sentiment=complaint.sentiment_label or "unknown",
+                body=complaint.body,
+                current_draft=current_draft,
+                instruction=instruction,
+                tone=tone,
+            )
+        else:
+            # RAG context lookup
+            knowledge_context = ""
+            if db:
+                try:
+                    from app.models.knowledge import KnowledgeDocument
+                    from app.services.duplicate_detector import generate_embedding
+                    from sqlalchemy import text
+                    
+                    embedding_vector = await generate_embedding(complaint.body)
+                    if embedding_vector:
+                        sql = text("""
+                            SELECT title, content
+                            FROM knowledge_documents
+                            ORDER BY embedding <=> :query_embedding
+                            LIMIT 2
+                        """)
+                        result = await db.execute(sql, {"query_embedding": str(embedding_vector.tolist()) if hasattr(embedding_vector, "tolist") else str(embedding_vector)})
+                        rows = result.all()
+                        if rows:
+                            kb_texts = []
+                            for r in rows:
+                                kb_texts.append(f"Policy Title: {r.title}\nPolicy Content:\n{r.content}")
+                            knowledge_context = "\n\nUse the following company policies to guide your resolution steps:\n" + "\n---\n".join(kb_texts)
+                except Exception as e:
+                    print(f"Error loading knowledge base context for RAG: {e}")
+
+            contents = RESPONSE_PROMPT.format(
                 subject=complaint.subject or "N/A",
                 category=complaint.category or "general",
                 severity=complaint.severity,
                 sentiment=complaint.sentiment_label or "unknown",
                 body=complaint.body,
                 tone=tone,
-            ),
+            ) + knowledge_context
+
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=contents,
             config={
                 "temperature": 0.4,
                 "response_mime_type": "application/json",

@@ -178,3 +178,128 @@ async def simulate_burst(count: int = 5, db: AsyncSession = Depends(get_db)):
             pass
 
     return {"simulated": len(results), "complaints": results}
+
+
+from pydantic import BaseModel
+import os
+import json
+import uuid
+import glob
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+class IncomingTelegramMock(BaseModel):
+    chat_id: str
+    first_name: str
+    text: str
+
+class IncomingEmailMock(BaseModel):
+    from_email: str
+    from_name: str
+    subject: str
+    body: str
+
+@router.post("/telegram/incoming")
+async def simulate_incoming_telegram(payload: IncomingTelegramMock):
+    """Write an incoming mock Telegram update JSON to trigger the listener."""
+    import random
+    os.makedirs("mock_telegram/inbox", exist_ok=True)
+    update = {
+        "update_id": random.randint(100000, 999999),
+        "message": {
+            "message_id": random.randint(1, 10000),
+            "chat": {
+                "id": int(payload.chat_id) if payload.chat_id.isdigit() else 123456
+            },
+            "from": {
+                "first_name": payload.first_name,
+                "is_bot": False
+            },
+            "text": payload.text,
+            "date": int(datetime.now(timezone.utc).timestamp())
+        }
+    }
+    filename = f"incoming_{uuid.uuid4().hex[:8]}.json"
+    filepath = os.path.join("mock_telegram/inbox", filename)
+    with open(filepath, "w") as f:
+        json.dump(update, f, indent=2)
+    return {"success": True, "file": filename}
+
+
+@router.post("/email/incoming")
+async def simulate_incoming_email(payload: IncomingEmailMock):
+    """Write an incoming mock Email EML to trigger the listener."""
+    os.makedirs("mock_emails/inbox", exist_ok=True)
+    msg = MIMEMultipart()
+    msg["From"] = f"{payload.from_name} <{payload.from_email}>"
+    msg["To"] = settings.SUPPORT_EMAIL
+    msg["Subject"] = payload.subject
+    msg["Message-ID"] = f"<{uuid.uuid4()}@client.example.com>"
+    msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    msg.attach(MIMEText(payload.body, "plain", "utf-8"))
+
+    filename = f"incoming_{uuid.uuid4().hex[:8]}.eml"
+    filepath = os.path.join("mock_emails/inbox", filename)
+    with open(filepath, "wb") as f:
+        f.write(msg.as_bytes())
+    return {"success": True, "file": filename}
+
+
+@router.get("/sent-messages")
+async def get_sent_messages():
+    """Retrieve all logged mock outgoing email and Telegram messages."""
+    import email
+    import glob
+    
+    emails = []
+    telegram = []
+
+    # Parse sent emails
+    email_dir = "mock_emails/sent"
+    if os.path.exists(email_dir):
+        for filepath in glob.glob(os.path.join(email_dir, "*.eml")):
+            try:
+                with open(filepath, "rb") as f:
+                    msg = email.message_from_bytes(f.read())
+                
+                # Get body
+                body = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                            break
+                else:
+                    body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
+
+                emails.append({
+                    "id": os.path.basename(filepath),
+                    "recipient": msg.get("To", "unknown"),
+                    "subject": msg.get("Subject", "No Subject"),
+                    "body": body,
+                    "timestamp": datetime.fromtimestamp(os.path.getmtime(filepath)).isoformat()
+                })
+            except Exception as e:
+                print(f"Error parsing sent EML: {e}")
+
+    # Parse sent telegrams
+    tg_dir = "mock_telegram/sent"
+    if os.path.exists(tg_dir):
+        for filepath in glob.glob(os.path.join(tg_dir, "*.json")):
+            try:
+                with open(filepath, "r") as f:
+                    data = json.load(f)
+                telegram.append({
+                    "id": os.path.basename(filepath),
+                    "chat_id": data.get("chat_id"),
+                    "text": data.get("text"),
+                    "timestamp": data.get("timestamp")
+                })
+            except Exception as e:
+                print(f"Error parsing sent Telegram json: {e}")
+
+    # Sort by timestamp descending
+    emails.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    telegram.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+    return {"emails": emails, "telegram": telegram}
