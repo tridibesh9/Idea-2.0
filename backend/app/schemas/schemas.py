@@ -108,12 +108,30 @@ class MessageResponse(BaseModel):
 
 class GenerateResponseRequest(BaseModel):
     tone: str = "empathetic"  # formal, empathetic, neutral
+    instruction: str | None = None
+    current_draft: str | None = None
 
 
 class GenerateResponseResult(BaseModel):
     draft_text: str
     tone: str
     suggested_actions: list[str] = []
+
+
+class KnowledgeCreate(BaseModel):
+    title: str
+    content: str
+    category: str
+
+
+class KnowledgeResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    content: str
+    category: str
+
+    class Config:
+        from_attributes = True
 
 
 # ── Email Reply Schema ──

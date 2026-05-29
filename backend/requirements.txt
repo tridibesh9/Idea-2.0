@@ -19,3 +19,8 @@ imap-tools
 aiosmtplib
 mail-parser
 email-validator
+
+# Scientific / Clustering libraries
+numpy
+scikit-learn
+

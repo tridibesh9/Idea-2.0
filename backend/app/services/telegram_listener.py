@@ -104,6 +104,10 @@ class TelegramListener:
                     hours = SLA_HOURS.get(classification.severity, 24)
                     complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=hours)
 
+                    # Smart Routing Auto Assignment
+                    from app.services.smart_router import route_complaint
+                    await route_complaint(complaint, db)
+
                     # Generate embedding
                     try:
                         embedding_vector = await generate_embedding(text)
@@ -165,29 +169,57 @@ class TelegramListener:
             return None
 
     async def run(self):
-        if not settings.TELEGRAM_BOT_TOKEN:
-            logger.warning("Telegram bot token not configured, listener disabled")
-            return
+        is_mock_mode = not settings.TELEGRAM_BOT_TOKEN
 
         self.is_running = True
-        url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getUpdates"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        if is_mock_mode:
+            logger.info("Telegram listener running in MOCK mode (monitoring mock_telegram/inbox directory)")
+            import os
+            os.makedirs("mock_telegram/inbox", exist_ok=True)
+            os.makedirs("mock_telegram/sent", exist_ok=True)
+
             while self.is_running:
                 try:
-                    response = await client.get(url, params={"offset": self.offset, "timeout": 20})
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get("ok"):
-                            for update in data.get("result", []):
-                                update_id = update["update_id"]
-                                self.offset = update_id + 1
-                                await self.process_update(update)
-                    
+                    inbox_dir = "mock_telegram/inbox"
+                    if os.path.exists(inbox_dir):
+                        files = os.listdir(inbox_dir)
+                        for filename in files:
+                            if not self.is_running:
+                                break
+                            filepath = os.path.join(inbox_dir, filename)
+                            if os.path.isfile(filepath) and filename.endswith(".json"):
+                                try:
+                                    logger.info(f"Mock Telegram listener found file: {filename}")
+                                    with open(filepath, "r") as f:
+                                        update = json.load(f)
+                                    await self.process_update(update)
+                                    os.remove(filepath)
+                                    logger.info(f"Processed and removed mock Telegram message: {filename}")
+                                except Exception as e:
+                                    logger.error(f"Error processing mock Telegram file {filename}: {e}")
                     await asyncio.sleep(settings.TELEGRAM_CHECK_INTERVAL)
                 except Exception as e:
-                    logger.error(f"Telegram listener error: {e}")
+                    logger.error(f"Mock Telegram listener error: {e}")
                     await asyncio.sleep(5)
+        else:
+            url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getUpdates"
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                while self.is_running:
+                    try:
+                        response = await client.get(url, params={"offset": self.offset, "timeout": 20})
+                        if response.status_code == 200:
+                            data = response.json()
+                            if data.get("ok"):
+                                for update in data.get("result", []):
+                                    update_id = update["update_id"]
+                                    self.offset = update_id + 1
+                                    await self.process_update(update)
+                        
+                        await asyncio.sleep(settings.TELEGRAM_CHECK_INTERVAL)
+                    except Exception as e:
+                        logger.error(f"Telegram listener error: {e}")
+                        await asyncio.sleep(5)
 
     async def stop(self):
         self.is_running = False

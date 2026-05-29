@@ -1,7 +1,9 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "/api",
+  baseURL: import.meta.env.VITE_API_URL 
+    ? `${import.meta.env.VITE_API_URL}/api` 
+    : "http://localhost:8000/api",
   headers: { "Content-Type": "application/json" },
 });
 
@@ -26,6 +28,11 @@ export const getTrends = (params) => api.get("/analytics/trends", { params });
 export const getRootCause = (params) =>
   api.get("/analytics/root-cause", { params });
 export const getWeeklySummary = () => api.get("/analytics/weekly-summary");
+export const getComplaintClusters = () => api.get("/analytics/complaint-clusters");
+
+// ── Knowledge Base ──
+export const searchKnowledgeBase = (q, category) => api.get("/knowledge/search", { params: { q, category } });
+export const addKnowledgeDocument = (data) => api.post("/knowledge", data);
 
 // ── Escalations ──
 export const getEscalations = (params) => api.get("/escalations", { params });
@@ -46,5 +53,8 @@ export const simulateChannel = (channel) =>
   api.post(`/simulator/simulate/${channel}`);
 export const simulateBurst = (count = 5) =>
   api.post(`/simulator/simulate/burst?count=${count}`);
+export const simulateIncomingTelegram = (data) => api.post("/simulator/telegram/incoming", data);
+export const simulateIncomingEmail = (data) => api.post("/simulator/email/incoming", data);
+export const getSentMessages = () => api.get("/simulator/sent-messages");
 
 export default api;

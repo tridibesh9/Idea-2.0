@@ -8,13 +8,18 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings
 from app.routes import complaints, analytics, escalations, audit
-from app.routes import reports, websocket as ws_route, simulator
+from app.routes import reports, websocket as ws_route, simulator, knowledge
 from app.services.sla_checker import check_sla_breaches
 from app.services.email_listener import start_email_listener, stop_email_listener
 from app.services.telegram_listener import start_telegram_listener, stop_telegram_listener
 
 settings = get_settings()
 logger = logging.getLogger("complaintiq")
+
+# Log allowed CORS origins at startup
+cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+logger.info(f"Allowed CORS Origins: {cors_origins}")
+print(f"Allowed CORS Origins: {cors_origins}")
 
 scheduler = AsyncIOScheduler()
 
@@ -99,7 +104,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS.split(","),
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -112,6 +117,7 @@ app.include_router(escalations.router, prefix="/api/escalations", tags=["Escalat
 app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(simulator.router, prefix="/api/simulator", tags=["Simulator"])
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge Base"])
 app.include_router(ws_route.router, tags=["WebSocket"])
 
 
