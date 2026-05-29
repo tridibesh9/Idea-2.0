@@ -32,6 +32,7 @@ from app.services.classifier import classify_complaint
 from app.services.duplicate_detector import find_similar, generate_embedding
 from app.services.response_generator import generate_response
 from app.services.email_sender import send_reply_email
+from app.services.telegram_sender import send_telegram_reply
 from app.services.pii_redactor import pii_redactor
 from app.services.entity_extractor import extract_entities
 from app.services.grouping_engine import assign_incident_group
@@ -365,7 +366,7 @@ async def send_email_reply(
     payload: SendEmailReplyRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Send an email reply to the customer for a complaint."""
+    """Send a reply to the customer for a complaint (via email or telegram)."""
     # Get complaint with customer info
     result = await db.execute(
         select(Complaint)
@@ -382,30 +383,35 @@ async def send_email_reply(
     if not complaint.customer or not complaint.customer.email:
         raise HTTPException(status_code=400, detail="Customer email not available")
 
-    if complaint.channel != "email":
+    if complaint.channel not in ["email", "telegram"]:
         raise HTTPException(
-            status_code=400, detail="Can only send replies for email channel complaints"
+            status_code=400, detail="Can only send replies for email or telegram channel complaints"
         )
 
-    # Get the first email message from customer for threading
-    original_message_id = complaint.external_id
-    original_references = ""
+    if complaint.channel == "email":
+        # Get the first email message from customer for threading
+        original_message_id = complaint.external_id
+        original_references = ""
 
-    # Prepare subject
-    subject = payload.subject or complaint.subject or "Your Support Request"
+        # Prepare subject
+        subject = payload.subject or complaint.subject or "Your Support Request"
 
-    # Send email
-    success = await send_reply_email(
-        recipient=complaint.customer.email,
-        subject=subject,
-        body_text=payload.reply_text,
-        original_complaint_id=str(complaint_id),
-        original_message_id=original_message_id,
-        original_references=original_references,
-    )
+        # Send email
+        success = await send_reply_email(
+            recipient=complaint.customer.email,
+            subject=subject,
+            body_text=payload.reply_text,
+            original_complaint_id=str(complaint_id),
+            original_message_id=original_message_id,
+            original_references=original_references,
+        )
+    elif complaint.channel == "telegram":
+        chat_id = complaint.external_id
+        subject = payload.subject or complaint.subject or "Reply"
+        success = await send_telegram_reply(chat_id, payload.reply_text)
 
     if not success:
-        raise HTTPException(status_code=500, detail="Failed to send email")
+        raise HTTPException(status_code=500, detail="Failed to send reply")
 
     # Record the reply message in database
     msg = ComplaintMessage(
@@ -425,11 +431,12 @@ async def send_email_reply(
     # Create audit log
     audit = AuditLog(
         complaint_id=complaint_id,
-        action="email_reply_sent",
+        action="reply_sent",
         performed_by="agent",
         details=json.dumps(
             {
-                "recipient": complaint.customer.email,
+                "channel": complaint.channel,
+                "recipient": complaint.customer.email if complaint.channel == "email" else complaint.external_id,
                 "subject": subject,
             }
         ),
@@ -454,6 +461,6 @@ async def send_email_reply(
 
     return SendEmailReplyResponse(
         success=True,
-        message=f"Email sent to {complaint.customer.email}",
+        message=f"Reply sent via {complaint.channel}",
         complaint_id=complaint_id,
     )

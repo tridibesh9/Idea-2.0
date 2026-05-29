@@ -11,6 +11,7 @@ from app.routes import complaints, analytics, escalations, audit
 from app.routes import reports, websocket as ws_route, simulator
 from app.services.sla_checker import check_sla_breaches
 from app.services.email_listener import start_email_listener, stop_email_listener
+from app.services.telegram_listener import start_telegram_listener, stop_telegram_listener
 
 settings = get_settings()
 logger = logging.getLogger("complaintiq")
@@ -19,7 +20,7 @@ scheduler = AsyncIOScheduler()
 
 # Global reference to email listener task
 _email_listener_task = None
-
+_telegram_listener_task = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,6 +49,25 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to start email listener: {e}")
 
+    # Start telegram listener if enabled
+    global _telegram_listener_task
+    if settings.TELEGRAM_LISTENER_ENABLED:
+        try:
+            # We can reuse the broadcast_email logic, maybe define it outside if we want, or redefine it
+            async def broadcast_telegram(data):
+                try:
+                    from app.routes.websocket import manager
+                    await manager.broadcast(data)
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast telegram event: {e}")
+            
+            _telegram_listener_task = asyncio.create_task(
+                start_telegram_listener(broadcast_telegram)
+            )
+            logger.info("Telegram listener task started")
+        except Exception as e:
+            logger.error(f"Failed to start telegram listener: {e}")
+
     yield
 
     # Shutdown
@@ -58,6 +78,15 @@ async def lifespan(app: FastAPI):
             await _email_listener_task
         except asyncio.CancelledError:
             pass
+
+    await stop_telegram_listener()
+    if _telegram_listener_task:
+        _telegram_listener_task.cancel()
+        try:
+            await _telegram_listener_task
+        except asyncio.CancelledError:
+            pass
+            
     scheduler.shutdown(wait=False)
 
 

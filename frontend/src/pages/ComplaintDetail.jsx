@@ -90,7 +90,7 @@ export default function ComplaintDetail() {
   async function handleSendMessage(content) {
     if (!content.trim()) return;
     try {
-      if (complaint && complaint.channel === 'email') {
+      if (complaint && (complaint.channel === 'email' || complaint.channel === 'telegram')) {
         await sendEmailReply(id, { reply_text: content, subject: complaint.subject });
       } else {
         await addMessage(id, { sender_type: 'agent', sender_name: 'Agent', content });

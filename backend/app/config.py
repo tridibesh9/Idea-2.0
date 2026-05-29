@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     EMAIL_LISTENER_ENABLED: bool = True
     EMAIL_CHECK_INTERVAL: int = 5  # seconds
 
+    # Telegram Configuration
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_LISTENER_ENABLED: bool = True
+    TELEGRAM_CHECK_INTERVAL: int = 3  # seconds
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
