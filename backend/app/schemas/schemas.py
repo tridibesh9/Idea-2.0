@@ -9,6 +9,9 @@ class EntityResponse(BaseModel):
     entity_value: str
     is_sensitive: bool
 
+    class Config:
+        from_attributes = True
+
 # ── Complaint Schemas ──
 
 

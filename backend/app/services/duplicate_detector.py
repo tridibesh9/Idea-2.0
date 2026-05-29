@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.complaint import Complaint, ComplaintEmbedding
+from app.models.entity import Entity
 from app.schemas.schemas import SimilarComplaint
 
 settings = get_settings()
@@ -67,12 +68,40 @@ async def find_similar(
     )
     rows = result.all()
 
+    # Fetch entities for the source complaint
+    entities_result = await db.execute(
+        select(Entity).where(Entity.complaint_id == complaint_id, Entity.is_sensitive == False)
+    )
+    source_entities = entities_result.scalars().all()
+    
+    entity_matches = set()
+    if source_entities:
+        # Build query to find complaints sharing the exact same entity type and value
+        from sqlalchemy import or_, and_
+        or_conditions = []
+        for ent in source_entities:
+            or_conditions.append(and_(Entity.entity_type == ent.entity_type, Entity.entity_value == ent.entity_value))
+        
+        if or_conditions:
+            match_query = select(Entity.complaint_id).where(Entity.complaint_id != complaint_id, or_(*or_conditions))
+            match_res = await db.execute(match_query)
+            entity_matches = set(match_res.scalars().all())
+
+    # Compile the final similar list, boosting scores for entity matches
     similar = []
+    
+    # Track which complaint IDs we've added to avoid duplicates if they appear in both vectors and entities
+    processed_cids = set()
+
     for row in rows:
         cid = uuid.UUID(str(row.complaint_id))
+        processed_cids.add(cid)
         complaint_result = await db.execute(select(Complaint).where(Complaint.id == cid))
         c = complaint_result.scalar_one_or_none()
         if c:
+            # Boost score to 1.0 if it's an exact entity match, otherwise use vector similarity
+            final_score = 1.0 if cid in entity_matches else float(row.similarity_score)
+            
             similar.append(
                 SimilarComplaint(
                     complaint_id=c.id,
@@ -80,8 +109,31 @@ async def find_similar(
                     category=c.category,
                     severity=c.severity,
                     status=c.status,
-                    similarity_score=round(float(row.similarity_score), 3),
+                    similarity_score=round(final_score, 3),
                     created_at=c.created_at,
                 )
             )
-    return similar
+
+    # Add any entity matches that didn't meet the vector threshold
+    for cid in entity_matches:
+        if cid not in processed_cids:
+            complaint_result = await db.execute(select(Complaint).where(Complaint.id == cid))
+            c = complaint_result.scalar_one_or_none()
+            if c:
+                similar.append(
+                    SimilarComplaint(
+                        complaint_id=c.id,
+                        subject=c.subject,
+                        category=c.category,
+                        severity=c.severity,
+                        status=c.status,
+                        similarity_score=1.0,  # Explicit entity match gets perfect score
+                        created_at=c.created_at,
+                    )
+                )
+
+    # Sort again by score descending since we might have added new ones or boosted scores
+    similar.sort(key=lambda x: x.similarity_score, reverse=True)
+    
+    # Re-apply limit after merging
+    return similar[:limit]

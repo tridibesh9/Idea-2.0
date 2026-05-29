@@ -19,8 +19,11 @@ from app.services.email_parser import (
 from app.models.complaint import Complaint, ComplaintMessage, ComplaintEmbedding
 from app.models.customer import Customer
 from app.models.audit_log import AuditLog
+from app.models.entity import Entity
 from app.services.classifier import classify_complaint
 from app.services.duplicate_detector import generate_embedding
+from app.services.pii_redactor import pii_redactor
+from app.services.entity_extractor import extract_entities
 from app.database import async_session
 
 logger = logging.getLogger("email_listener")
@@ -178,7 +181,37 @@ class EmailListener:
                         )
                         complaint = result.scalar_one_or_none()
 
-                # If not a reply, create new complaint
+                business_entities_to_save = []
+                sensitive_entities_to_save = {}
+
+                # If not found by ticket ID or Reply-To, try entity-based threading
+                if not complaint and customer:
+                    safe_text, sensitive_entities_to_save = pii_redactor.redact(parsed.body_text)
+                    business_entities_to_save = await extract_entities(safe_text)
+
+                    if business_entities_to_save:
+                        for be in business_entities_to_save:
+                            ent_type = be.get("entity_type")
+                            ent_val = be.get("entity_value")
+                            if ent_type and ent_val:
+                                result = await db.execute(
+                                    select(Complaint)
+                                    .join(Entity, Complaint.id == Entity.complaint_id)
+                                    .where(
+                                        Complaint.customer_id == customer.id,
+                                        Entity.entity_type == ent_type,
+                                        Entity.entity_value == ent_val,
+                                        Entity.is_sensitive == False
+                                    )
+                                    .order_by(Complaint.created_at.desc())
+                                    .limit(1)
+                                )
+                                matched_complaint = result.scalar_one_or_none()
+                                if matched_complaint:
+                                    complaint = matched_complaint
+                                    break
+
+                # If not a reply or matched by entity, create new complaint
                 if not complaint:
                     complaint = Complaint(
                         channel="email",
@@ -190,6 +223,13 @@ class EmailListener:
                     )
                     db.add(complaint)
                     await db.flush()
+
+                    # Save extracted entities
+                    for token_type, tokens in sensitive_entities_to_save.items():
+                        for val in tokens:
+                            db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
+                    for be in business_entities_to_save:
+                        db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
 
                     # AI Classification
                     classification = await classify_complaint(parsed.body_text, "email")
