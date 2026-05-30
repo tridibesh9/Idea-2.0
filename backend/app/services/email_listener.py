@@ -81,7 +81,7 @@ class EmailListener:
                 emails = []
                 try:
                     # Fetch all unseen messages
-                    for msg in mailbox.fetch(AND(seen=False)):
+                    for msg in mailbox.fetch(AND(seen=False), mark_seen=False):
                         try:
                             # Get the raw email bytes
                             email_bytes = msg.obj.as_bytes()
@@ -109,7 +109,8 @@ class EmailListener:
         try:
 
             def _mark():
-                mailbox.flag([uid], "+FLAGS", "\\Seen", silent=True)
+                from imap_tools import MailMessageFlags
+                mailbox.flag([uid], MailMessageFlags.SEEN, True)
 
             await asyncio.get_event_loop().run_in_executor(self._executor, _mark)
         except Exception as e:

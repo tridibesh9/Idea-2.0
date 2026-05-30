@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     SMTP_EMAIL: str = ""
     SMTP_PASSWORD: str = ""
 
-    SUPPORT_EMAIL: str = "support@example.com"
-    SUPPORT_NAME: str = "ComplaintIQ Support"
+    SUPPORT_EMAIL: str = ""
+    SUPPORT_NAME: str = ""
 
     # Email listener enabled/disabled
     EMAIL_LISTENER_ENABLED: bool = True
