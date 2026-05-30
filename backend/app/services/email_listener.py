@@ -163,22 +163,19 @@ class EmailListener:
                     except (ValueError, TypeError):
                         pass
 
-                # If not found by ticket ID, check In-Reply-To header
-                if not complaint and parsed.in_reply_to:
-                    result = await db.execute(
-                        select(ComplaintMessage)
-                        .where(
-                            ComplaintMessage.__table__.c.content.contains(
-                                parsed.in_reply_to
-                            )
-                        )
-                        .limit(1)
-                    )
-                    msg = result.scalar_one_or_none()
-                    if msg:
-                        # Query complaint explicitly to avoid DetachedInstanceError in SQLAlchemy async context
+                # If not found by ticket ID, check In-Reply-To header or References
+                if not complaint and (parsed.in_reply_to or parsed.references):
+                    search_ids = []
+                    if parsed.in_reply_to:
+                        search_ids.append(parsed.in_reply_to)
+                    if parsed.references:
+                        search_ids.extend(parsed.references)
+                    
+                    if search_ids:
                         result = await db.execute(
-                            select(Complaint).where(Complaint.id == msg.complaint_id)
+                            select(Complaint)
+                            .where(Complaint.external_id.in_(search_ids))
+                            .limit(1)
                         )
                         complaint = result.scalar_one_or_none()
 
@@ -318,9 +315,15 @@ class EmailListener:
                 # Broadcast to WebSocket if callback is set
                 if self._broadcast_callback:
                     try:
+                        # If it's a new complaint, status is 'new'. If updated, it's 'open'.
+                        # Wait, we just set it to 'open' if it was a reply.
+                        # We can determine if it's new by checking if we hit the 'if not complaint' block.
+                        # But since we don't have that flag here, we can just look at status or assume new_message if status != 'new'
+                        event_type = "new_complaint" if complaint.status == "new" else "new_message"
+                        
                         await self._broadcast_callback(
                             {
-                                "type": "new_complaint",
+                                "type": event_type,
                                 "complaint_id": str(complaint.id),
                                 "subject": complaint.subject,
                                 "category": complaint.category,

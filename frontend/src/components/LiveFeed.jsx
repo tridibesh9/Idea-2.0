@@ -6,12 +6,14 @@ import { useToast } from './Toast';
 
 const EVENT_ICONS = {
   new_complaint: MessageSquare,
+  new_message: MessageSquare,
   sla_breach: AlertTriangle,
   status_change: RefreshCw,
 };
 
 const EVENT_COLORS = {
   new_complaint: 'text-blue-500',
+  new_message: 'text-purple-500',
   sla_breach: 'text-red-500',
   status_change: 'text-yellow-500',
 };
@@ -33,6 +35,11 @@ export default function LiveFeed() {
       addToast(
         `New ${data.severity || ''} complaint via ${data.channel}: ${data.subject?.slice(0, 50) || 'No subject'}`,
         data.severity === 'critical' ? 'error' : 'info'
+      );
+    } else if (data.type === 'new_message') {
+      addToast(
+        `New reply from customer: ${data.subject?.slice(0, 50) || 'No subject'}`,
+        'info'
       );
     } else if (data.type === 'sla_breach') {
       addToast(
@@ -76,6 +83,7 @@ export default function LiveFeed() {
                 <div className="flex-1 min-w-0">
                   <p className="text-gray-700 dark:text-gray-300 truncate">
                     {evt.type === 'new_complaint' && `New complaint via ${evt.channel}`}
+                    {evt.type === 'new_message' && `New reply from customer`}
                     {evt.type === 'sla_breach' && `SLA breached`}
                     {evt.type === 'status_change' && `Status → ${evt.status}`}
                     {evt.subject && `: ${evt.subject.slice(0, 50)}`}

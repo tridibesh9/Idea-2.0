@@ -8,6 +8,7 @@ import {
   sendEmailReply, searchKnowledgeBase,
 } from '../api';
 import { SkeletonCard } from '../components/Skeleton';
+import useWebSocket from '../hooks/useWebSocket';
 
 const SEVERITY_COLORS = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
 const STATUS_COLORS = { new: '#3b82f6', open: '#8b5cf6', in_progress: '#f59e0b', escalated: '#ef4444', resolved: '#22c55e', closed: '#6b7280' };
@@ -39,6 +40,12 @@ export default function ComplaintDetail() {
   const [refineInstruction, setRefineInstruction] = useState('');
 
   useEffect(() => { loadAll(); }, [id]);
+
+  useWebSocket((data) => {
+    if ((data.type === 'new_message' || data.type === 'status_change') && data.complaint_id === id) {
+      loadAll();
+    }
+  });
 
   async function loadAll() {
     setLoading(true);
