@@ -1,7 +1,7 @@
 # Byte-compiled
 __pycache__/
 *.py[cod]
-
+*.txt
 # Env
 .env
 .venv/
