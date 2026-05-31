@@ -4,7 +4,7 @@ from google import genai
 from app.config import get_settings
 from app.schemas.schemas import ComplaintClassification
 from app.services.pii_redactor import pii_redactor
-
+#
 settings = get_settings()
 client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
 
