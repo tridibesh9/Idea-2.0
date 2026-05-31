@@ -17,8 +17,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://complaintiq:complaintiq@db:5432/complaintiq
-      DATABASE_URL_SYNC: postgresql://complaintiq:complaintiq@db:5432/complaintiq
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://complaintiq:complaintiq@db:5432/complaintiq}
+      DATABASE_URL_SYNC: ${DATABASE_URL_SYNC:-postgresql://complaintiq:complaintiq@db:5432/complaintiq}
     env_file:
       - .env
     depends_on:
