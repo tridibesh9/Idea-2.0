@@ -3,6 +3,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from app.services.email_parser import ParsedEmail, extract_text_from_html
 from app.services.email_listener import process_parsed_email
+from app.config import get_settings
+import httpx
+
+settings = get_settings()
 
 router = APIRouter()
 logger = logging.getLogger("webhooks")
@@ -37,6 +41,27 @@ async def resend_inbound_webhook(request: Request, background_tasks: BackgroundT
         
         text = data.get("text", "")
         html = data.get("html", "")
+        email_id = data.get("email_id")
+        
+        # Resend webhooks for 'email.received' do not include the email body
+        # We must fetch the full email using the Resend API if it's missing
+        if not text and not html and email_id and settings.RESEND_API_KEY:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"https://api.resend.com/emails/{email_id}",
+                        headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"}
+                    )
+                    if resp.status_code == 200:
+                        email_data = resp.json()
+                        text = email_data.get("text", "")
+                        html = email_data.get("html", "")
+                        subject = email_data.get("subject", subject)
+                    else:
+                        logger.error(f"Failed to fetch email {email_id} from Resend: {resp.text}")
+            except Exception as e:
+                logger.error(f"Error fetching email {email_id}: {e}")
+
         if not text and html:
             text = extract_text_from_html(html)
             
