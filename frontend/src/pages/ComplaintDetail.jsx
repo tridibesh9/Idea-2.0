@@ -255,7 +255,7 @@ export default function ComplaintDetail() {
                     {/* Multimodal Image Attachment Rendering */}
                     <div className="mt-3">
                       <img 
-                        src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/complaints/${complaint.id}/image`} 
+                        src={`${import.meta.env.VITE_API_URL || ''}/api/complaints/${complaint.id}/image`} 
                         alt="User Attachment" 
                         className="max-w-full h-auto rounded-lg border border-gray-300 dark:border-gray-600"
                         onError={(e) => { e.target.style.display = 'none'; }}
@@ -290,7 +290,7 @@ export default function ComplaintDetail() {
                           {isOriginal && (
                             <div className="mt-3">
                               <img 
-                                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/complaints/${complaint.id}/image`} 
+                                src={`${import.meta.env.VITE_API_URL || ''}/api/complaints/${complaint.id}/image`} 
                                 alt="User Attachment" 
                                 className="max-w-full h-auto rounded-lg border border-gray-300 dark:border-gray-600"
                                 onError={(e) => { e.target.style.display = 'none'; }}

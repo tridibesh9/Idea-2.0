@@ -12,10 +12,16 @@ export default function useWebSocket(onMessage) {
   }, [onMessage]);
 
   const connect = useCallback(() => {
-    const viteApiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-    const wsProtocol = viteApiUrl.startsWith('https') ? 'wss:' : 'ws:';
-    const parsedHost = viteApiUrl.replace(/^https?:\/\//, '');
-    const wsUrl = `${wsProtocol}//${parsedHost}/ws`;
+    const viteApiUrl = import.meta.env.VITE_API_URL;
+    let wsUrl = '';
+    if (viteApiUrl) {
+      const wsProtocol = viteApiUrl.startsWith('https') ? 'wss:' : 'ws:';
+      const parsedHost = viteApiUrl.replace(/^https?:\/\//, '');
+      wsUrl = `${wsProtocol}//${parsedHost}/ws`;
+    } else {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+    }
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
