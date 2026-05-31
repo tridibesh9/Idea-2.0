@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings
 from app.routes import complaints, analytics, escalations, audit
-from app.routes import reports, websocket as ws_route, simulator, knowledge
+from app.routes import reports, websocket as ws_route, simulator, knowledge, webhooks
 from app.services.sla_checker import check_sla_breaches
 from app.services.email_listener import start_email_listener, stop_email_listener
 from app.services.telegram_listener import start_telegram_listener, stop_telegram_listener
@@ -118,6 +118,7 @@ app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(simulator.router, prefix="/api/simulator", tags=["Simulator"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge Base"])
+app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(ws_route.router, tags=["WebSocket"])
 
 

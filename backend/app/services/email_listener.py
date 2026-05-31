@@ -32,6 +32,221 @@ settings = get_settings()
 SLA_HOURS = {"critical": 4, "high": 8, "medium": 24, "low": 72}
 
 
+async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid.UUID]:
+    """Process a ParsedEmail and create/update complaint in database."""
+    try:
+        # Get or create customer
+        customer = None
+        async with async_session() as db:
+            result = await db.execute(
+                select(Customer).where(Customer.email == parsed.from_email)
+            )
+            customer = result.scalar_one_or_none()
+
+            if not customer:
+                customer = Customer(
+                    name=parsed.from_name,
+                    email=parsed.from_email,
+                )
+                db.add(customer)
+                await db.flush()
+
+            # Check if this is a reply to an existing complaint
+            complaint = None
+            ticket_id = extract_ticket_id_from_subject(parsed.subject)
+
+            if ticket_id:
+                try:
+                    # Try to parse UUID from ticket ID
+                    result = await db.execute(
+                        select(Complaint).where(
+                            Complaint.id == uuid.UUID(ticket_id)
+                        )
+                    )
+                    complaint = result.scalar_one_or_none()
+                except (ValueError, TypeError):
+                    pass
+
+            # If not found by ticket ID, check In-Reply-To header or References
+            if not complaint and (parsed.in_reply_to or parsed.references):
+                search_ids = []
+                if parsed.in_reply_to:
+                    search_ids.append(parsed.in_reply_to)
+                if parsed.references:
+                    search_ids.extend(parsed.references)
+                
+                if search_ids:
+                    result = await db.execute(
+                        select(Complaint)
+                        .where(Complaint.external_id.in_(search_ids))
+                        .limit(1)
+                    )
+                    complaint = result.scalar_one_or_none()
+
+            business_entities_to_save = []
+            sensitive_entities_to_save = {}
+
+            # If not found by ticket ID or Reply-To, try entity-based threading
+            if not complaint and customer:
+                safe_text, sensitive_entities_to_save = pii_redactor.redact(parsed.body_text)
+                business_entities_to_save = await extract_entities(safe_text)
+
+                if business_entities_to_save:
+                    for be in business_entities_to_save:
+                        ent_type = be.get("entity_type")
+                        ent_val = be.get("entity_value")
+                        if ent_type and ent_val:
+                            result = await db.execute(
+                                select(Complaint)
+                                .join(Entity, Complaint.id == Entity.complaint_id)
+                                .where(
+                                    Complaint.customer_id == customer.id,
+                                    Entity.entity_type == ent_type,
+                                    Entity.entity_value == ent_val,
+                                    Entity.is_sensitive == False
+                                )
+                                .order_by(Complaint.created_at.desc())
+                                .limit(1)
+                            )
+                            matched_complaint = result.scalar_one_or_none()
+                            if matched_complaint:
+                                complaint = matched_complaint
+                                break
+
+            # If not a reply or matched by entity, create new complaint
+            if not complaint:
+                complaint = Complaint(
+                    channel="email",
+                    external_id=parsed.message_id,
+                    subject=parsed.subject,
+                    body=parsed.body_text,
+                    customer_id=customer.id,
+                    status="new",
+                )
+                db.add(complaint)
+                await db.flush()
+
+                # Save extracted entities
+                for token_type, tokens in sensitive_entities_to_save.items():
+                    for val in tokens:
+                        db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
+                for be in business_entities_to_save:
+                    db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
+
+                # AI Classification
+                classification = await classify_complaint(parsed.body_text, "email")
+                complaint.category = classification.category
+                complaint.product = classification.product
+                complaint.severity = classification.severity
+                complaint.sentiment_score = classification.sentiment_score
+                complaint.sentiment_label = classification.sentiment_label
+                complaint.key_issues = json.dumps(classification.key_issues)
+                complaint.ai_confidence_score = classification.confidence
+                complaint.regulatory_flags = json.dumps(
+                    classification.regulatory_flags
+                )
+
+                # Set SLA deadline
+                hours = SLA_HOURS.get(classification.severity, 24)
+                complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(
+                    hours=hours
+                )
+
+                # Smart Routing Auto Assignment
+                from app.services.smart_router import route_complaint
+                await route_complaint(complaint, db)
+
+                # Generate embedding
+                try:
+                    embedding_vector = await generate_embedding(parsed.body_text)
+                    if embedding_vector:
+                        from app.models.complaint import ComplaintEmbedding
+
+                        emb = ComplaintEmbedding(
+                            complaint_id=complaint.id, embedding=embedding_vector
+                        )
+                        db.add(emb)
+                except Exception as e:
+                    logger.warning(f"Failed to generate embedding: {e}")
+
+                # Create audit log
+                audit = AuditLog(
+                    complaint_id=complaint.id,
+                    action="email_received",
+                    performed_by="system",
+                    details=json.dumps(
+                        {
+                            "from": parsed.from_email,
+                            "message_id": parsed.message_id,
+                            "classification": classification.model_dump(),
+                        }
+                    ),
+                )
+                db.add(audit)
+            else:
+                # Update existing complaint
+                complaint.updated_at = datetime.now(timezone.utc)
+                complaint.status = "open"
+
+            # Add message to complaint
+            msg = ComplaintMessage(
+                complaint_id=complaint.id,
+                sender_type="customer",
+                sender_name=parsed.from_name,
+                content=parsed.body_text,
+                channel="email",
+                created_at=parsed.date or datetime.now(timezone.utc),
+            )
+            db.add(msg)
+
+            # Create audit log for new message
+            if complaint.id:
+                audit = AuditLog(
+                    complaint_id=complaint.id,
+                    action="email_message_added",
+                    performed_by="system",
+                    details=json.dumps(
+                        {
+                            "from": parsed.from_email,
+                            "subject": parsed.subject,
+                        }
+                    ),
+                )
+                db.add(audit)
+
+            await db.commit()
+
+            # Broadcast to WebSocket if callback is set
+            if broadcast_callback:
+                try:
+                    # If it's a new complaint, status is 'new'. If updated, it's 'open'.
+                    # Wait, we just set it to 'open' if it was a reply.
+                    # We can determine if it's new by checking if we hit the 'if not complaint' block.
+                    # But since we don't have that flag here, we can just look at status or assume new_message if status != 'new'
+                    event_type = "new_complaint" if complaint.status == "new" else "new_message"
+                    
+                    await broadcast_callback(
+                        {
+                            "type": event_type,
+                            "complaint_id": str(complaint.id),
+                            "subject": complaint.subject,
+                            "category": complaint.category,
+                            "severity": complaint.severity,
+                            "customer": parsed.from_name,
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast: {e}")
+
+            logger.info(
+                f"Email processed: {parsed.subject} from {parsed.from_email}"
+            )
+            return complaint.id
+
+    except Exception as e:
+        logger.error(f"Error processing parsed email: {e}")
+        return None
+
 class EmailListener:
     """Manages IMAP connection and monitors for incoming emails."""
 
@@ -92,17 +307,19 @@ class EmailListener:
                             )
                 except Exception as e:
                     logger.warning(f"Failed to fetch emails: {e}")
+                    raise e
                 return emails
 
             emails = await asyncio.get_event_loop().run_in_executor(
                 self._executor, _fetch
             )
-            logger.info(f"Fetched {len(emails)} unseen emails")
+            if emails:
+                logger.info(f"Fetched {len(emails)} unseen emails")
             return emails
 
         except Exception as e:
             logger.error(f"Failed to fetch unseen emails: {e}")
-            return []
+            raise e
 
     async def mark_as_seen(self, mailbox, uid: str):
         """Mark email as seen after processing."""
@@ -117,228 +334,10 @@ class EmailListener:
             logger.warning(f"Failed to mark email {uid} as seen: {e}")
 
     async def process_email(self, email_bytes: bytes, uid: str) -> Optional[uuid.UUID]:
-        """
-        Process a single email and create/update complaint in database.
-
-        Args:
-            email_bytes: Raw email data
-            uid: IMAP UID
-
-        Returns:
-            Complaint ID if successful, None otherwise
-        """
+        """Process a single email and create/update complaint in database."""
         try:
-            # Parse email
             parsed = parse_email_message(email_bytes)
-
-            # Get or create customer
-            customer = None
-            async with async_session() as db:
-                result = await db.execute(
-                    select(Customer).where(Customer.email == parsed.from_email)
-                )
-                customer = result.scalar_one_or_none()
-
-                if not customer:
-                    customer = Customer(
-                        name=parsed.from_name,
-                        email=parsed.from_email,
-                    )
-                    db.add(customer)
-                    await db.flush()
-
-                # Check if this is a reply to an existing complaint
-                complaint = None
-                ticket_id = extract_ticket_id_from_subject(parsed.subject)
-
-                if ticket_id:
-                    try:
-                        # Try to parse UUID from ticket ID
-                        result = await db.execute(
-                            select(Complaint).where(
-                                Complaint.id == uuid.UUID(ticket_id)
-                            )
-                        )
-                        complaint = result.scalar_one_or_none()
-                    except (ValueError, TypeError):
-                        pass
-
-                # If not found by ticket ID, check In-Reply-To header or References
-                if not complaint and (parsed.in_reply_to or parsed.references):
-                    search_ids = []
-                    if parsed.in_reply_to:
-                        search_ids.append(parsed.in_reply_to)
-                    if parsed.references:
-                        search_ids.extend(parsed.references)
-                    
-                    if search_ids:
-                        result = await db.execute(
-                            select(Complaint)
-                            .where(Complaint.external_id.in_(search_ids))
-                            .limit(1)
-                        )
-                        complaint = result.scalar_one_or_none()
-
-                business_entities_to_save = []
-                sensitive_entities_to_save = {}
-
-                # If not found by ticket ID or Reply-To, try entity-based threading
-                if not complaint and customer:
-                    safe_text, sensitive_entities_to_save = pii_redactor.redact(parsed.body_text)
-                    business_entities_to_save = await extract_entities(safe_text)
-
-                    if business_entities_to_save:
-                        for be in business_entities_to_save:
-                            ent_type = be.get("entity_type")
-                            ent_val = be.get("entity_value")
-                            if ent_type and ent_val:
-                                result = await db.execute(
-                                    select(Complaint)
-                                    .join(Entity, Complaint.id == Entity.complaint_id)
-                                    .where(
-                                        Complaint.customer_id == customer.id,
-                                        Entity.entity_type == ent_type,
-                                        Entity.entity_value == ent_val,
-                                        Entity.is_sensitive == False
-                                    )
-                                    .order_by(Complaint.created_at.desc())
-                                    .limit(1)
-                                )
-                                matched_complaint = result.scalar_one_or_none()
-                                if matched_complaint:
-                                    complaint = matched_complaint
-                                    break
-
-                # If not a reply or matched by entity, create new complaint
-                if not complaint:
-                    complaint = Complaint(
-                        channel="email",
-                        external_id=parsed.message_id,
-                        subject=parsed.subject,
-                        body=parsed.body_text,
-                        customer_id=customer.id,
-                        status="new",
-                    )
-                    db.add(complaint)
-                    await db.flush()
-
-                    # Save extracted entities
-                    for token_type, tokens in sensitive_entities_to_save.items():
-                        for val in tokens:
-                            db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
-                    for be in business_entities_to_save:
-                        db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
-
-                    # AI Classification
-                    classification = await classify_complaint(parsed.body_text, "email")
-                    complaint.category = classification.category
-                    complaint.product = classification.product
-                    complaint.severity = classification.severity
-                    complaint.sentiment_score = classification.sentiment_score
-                    complaint.sentiment_label = classification.sentiment_label
-                    complaint.key_issues = json.dumps(classification.key_issues)
-                    complaint.ai_confidence_score = classification.confidence
-                    complaint.regulatory_flags = json.dumps(
-                        classification.regulatory_flags
-                    )
-
-                    # Set SLA deadline
-                    hours = SLA_HOURS.get(classification.severity, 24)
-                    complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(
-                        hours=hours
-                    )
-
-                    # Smart Routing Auto Assignment
-                    from app.services.smart_router import route_complaint
-                    await route_complaint(complaint, db)
-
-                    # Generate embedding
-                    try:
-                        embedding_vector = await generate_embedding(parsed.body_text)
-                        if embedding_vector:
-                            from app.models.complaint import ComplaintEmbedding
-
-                            emb = ComplaintEmbedding(
-                                complaint_id=complaint.id, embedding=embedding_vector
-                            )
-                            db.add(emb)
-                    except Exception as e:
-                        logger.warning(f"Failed to generate embedding: {e}")
-
-                    # Create audit log
-                    audit = AuditLog(
-                        complaint_id=complaint.id,
-                        action="email_received",
-                        performed_by="system",
-                        details=json.dumps(
-                            {
-                                "from": parsed.from_email,
-                                "message_id": parsed.message_id,
-                                "classification": classification.model_dump(),
-                            }
-                        ),
-                    )
-                    db.add(audit)
-                else:
-                    # Update existing complaint
-                    complaint.updated_at = datetime.now(timezone.utc)
-                    complaint.status = "open"
-
-                # Add message to complaint
-                msg = ComplaintMessage(
-                    complaint_id=complaint.id,
-                    sender_type="customer",
-                    sender_name=parsed.from_name,
-                    content=parsed.body_text,
-                    channel="email",
-                    created_at=parsed.date or datetime.now(timezone.utc),
-                )
-                db.add(msg)
-
-                # Create audit log for new message
-                if complaint.id:
-                    audit = AuditLog(
-                        complaint_id=complaint.id,
-                        action="email_message_added",
-                        performed_by="system",
-                        details=json.dumps(
-                            {
-                                "from": parsed.from_email,
-                                "subject": parsed.subject,
-                            }
-                        ),
-                    )
-                    db.add(audit)
-
-                await db.commit()
-
-                # Broadcast to WebSocket if callback is set
-                if self._broadcast_callback:
-                    try:
-                        # If it's a new complaint, status is 'new'. If updated, it's 'open'.
-                        # Wait, we just set it to 'open' if it was a reply.
-                        # We can determine if it's new by checking if we hit the 'if not complaint' block.
-                        # But since we don't have that flag here, we can just look at status or assume new_message if status != 'new'
-                        event_type = "new_complaint" if complaint.status == "new" else "new_message"
-                        
-                        await self._broadcast_callback(
-                            {
-                                "type": event_type,
-                                "complaint_id": str(complaint.id),
-                                "subject": complaint.subject,
-                                "category": complaint.category,
-                                "severity": complaint.severity,
-                                "customer": parsed.from_name,
-                            }
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to broadcast: {e}")
-
-                logger.info(
-                    f"Email processed: {parsed.subject} from {parsed.from_email}"
-                )
-                return complaint.id
-
+            return await process_parsed_email(parsed, self._broadcast_callback)
         except Exception as e:
             logger.error(f"Error processing email: {e}")
             return None

@@ -1,11 +1,10 @@
-"""Email sending service using SMTP (Python equivalent of Nodemailer)."""
+"""Email sending service using Resend API."""
 
 import logging
 from typing import Optional, List
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.utils import formataddr
-import aiosmtplib
+import httpx
+import os
+import uuid
 
 from app.config import get_settings
 
@@ -14,15 +13,13 @@ settings = get_settings()
 
 
 class EmailSender:
-    """Handles sending emails via SMTP."""
+    """Handles sending emails via Resend."""
 
     def __init__(self):
-        self.host = settings.SMTP_HOST
-        self.port = settings.SMTP_PORT
-        self.email = settings.SMTP_EMAIL
-        self.password = settings.SMTP_PASSWORD
+        self.api_key = settings.RESEND_API_KEY
         self.support_email = settings.SUPPORT_EMAIL
         self.support_name = settings.SUPPORT_NAME
+        self.is_mock_mode = not self.api_key or self.api_key == ""
 
     async def send_email(
         self,
@@ -36,7 +33,7 @@ class EmailSender:
         in_reply_to: Optional[str] = None,
     ) -> bool:
         """
-        Send an email via SMTP.
+        Send an email via Resend API.
 
         Args:
             recipient: Recipient email address
@@ -52,65 +49,59 @@ class EmailSender:
             True if successful, False otherwise
         """
         try:
-            is_mock_mode = (self.host == "localhost") or (not self.email or not self.password)
-
-            # Create message
-            msg = MIMEMultipart("alternative")
-            msg["From"] = formataddr((self.support_name, self.support_email))
-            msg["To"] = recipient
-            msg["Subject"] = subject
-
-            if cc:
-                msg["Cc"] = ", ".join(cc)
-
-            if reply_to:
-                msg["Reply-To"] = reply_to
-
-            # Add threading headers
-            if in_reply_to:
-                msg["In-Reply-To"] = in_reply_to
-
-            if references:
-                msg["References"] = references
-
-            # Attach text part
-            part1 = MIMEText(body_text, "plain", "utf-8")
-            msg.attach(part1)
-
-            # Attach HTML part if provided
-            if body_html:
-                part2 = MIMEText(body_html, "html", "utf-8")
-                msg.attach(part2)
-
-            if is_mock_mode:
-                import os
-                import uuid
+            if self.is_mock_mode:
                 os.makedirs("mock_emails/sent", exist_ok=True)
-                filename = f"sent_{uuid.uuid4().hex[:8]}.eml"
+                filename = f"sent_{uuid.uuid4().hex[:8]}.txt"
                 filepath = os.path.join("mock_emails/sent", filename)
-                with open(filepath, "wb") as f:
-                    f.write(msg.as_bytes())
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(f"To: {recipient}\n")
+                    f.write(f"Subject: {subject}\n")
+                    if in_reply_to:
+                        f.write(f"In-Reply-To: {in_reply_to}\n")
+                    if references:
+                        f.write(f"References: {references}\n")
+                    f.write(f"\nBody:\n{body_text}\n")
                 logger.info(f"[MOCK] Outgoing email saved to {filepath} successfully")
                 return True
 
-            if not self.email or not self.password:
-                logger.error("SMTP credentials not configured")
-                return False
+            payload = {
+                "from": f"{self.support_name} <{self.support_email}>",
+                "to": [recipient],
+                "subject": subject,
+                "text": body_text,
+            }
 
-            # Send via SMTP
-            use_tls = self.port == 465
-            start_tls = self.port == 587
-            async with aiosmtplib.SMTP(
-                hostname=self.host, 
-                port=self.port,
-                use_tls=use_tls,
-                start_tls=start_tls
-            ) as smtp:
-                await smtp.login(self.email, self.password)
-                recipients = [recipient]
-                if cc:
-                    recipients.extend(cc)
-                await smtp.send_message(msg)
+            if body_html:
+                payload["html"] = body_html
+            
+            if reply_to:
+                payload["reply_to"] = reply_to
+                
+            if cc:
+                payload["cc"] = cc
+
+            headers = {}
+            if in_reply_to:
+                headers["In-Reply-To"] = in_reply_to
+            if references:
+                headers["References"] = references
+                
+            if headers:
+                payload["headers"] = headers
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.resend.com/emails",
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                )
+                
+                if response.status_code >= 400:
+                    logger.error(f"Resend API error: {response.text}")
+                    return False
 
             logger.info(f"Email sent successfully to {recipient}")
             return True

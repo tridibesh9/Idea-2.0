@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_EMAIL: str = ""
     SMTP_PASSWORD: str = ""
+    RESEND_API_KEY: str = ""
 
     SUPPORT_EMAIL: str = ""
     SUPPORT_NAME: str = ""
