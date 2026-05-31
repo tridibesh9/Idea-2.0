@@ -482,3 +482,38 @@ async def send_email_reply(
         message=f"Reply sent via {complaint.channel}",
         complaint_id=complaint_id,
     )
+
+
+@router.post("/generate-missing-embeddings")
+async def generate_missing_embeddings(db: AsyncSession = Depends(get_db)):
+    """Generate and save vector embeddings for any existing complaints that lack them."""
+    result = await db.execute(
+        select(Complaint)
+        .outerjoin(ComplaintEmbedding, Complaint.id == ComplaintEmbedding.complaint_id)
+        .where(ComplaintEmbedding.complaint_id == None)
+    )
+    complaints = result.scalars().all()
+    
+    count = 0
+    errors = []
+    
+    for c in complaints:
+        try:
+            embedding_vector = await generate_embedding(c.body)
+            if embedding_vector:
+                emb = ComplaintEmbedding(complaint_id=c.id, embedding=embedding_vector)
+                db.add(emb)
+                count += 1
+            else:
+                errors.append(f"Could not generate embedding for Complaint ID {c.id}")
+        except Exception as e:
+            errors.append(f"Error for Complaint ID {c.id}: {str(e)}")
+            
+    if count > 0:
+        await db.commit()
+        
+    return {
+        "processed": count,
+        "total_missing": len(complaints),
+        "errors": errors
+    }

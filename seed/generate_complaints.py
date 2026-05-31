@@ -265,6 +265,27 @@ async def seed():
         # Enable pgvector extension
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
+        # Clear existing tables to ensure a fresh start
+        print("  Wiping existing data from tables...")
+        try:
+            await conn.execute("""
+                TRUNCATE TABLE 
+                    escalations, 
+                    audit_log, 
+                    complaint_embeddings, 
+                    complaint_messages, 
+                    complaints, 
+                    customers, 
+                    agents, 
+                    categories, 
+                    knowledge_documents, 
+                    sla_configs 
+                CASCADE;
+            """)
+            print("  Database tables successfully cleared.")
+        except Exception as e:
+            print(f"  Note: Could not truncate tables (they may not exist yet): {e}")
+
         # Create tables if not exist (run alembic first ideally, but this is a fallback)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS customers (

@@ -121,21 +121,6 @@ async def simulate_channel_intake(channel: str, db: AsyncSession = Depends(get_d
     )
 
     complaint = await create_complaint(payload, db)
-
-    # Broadcast via WebSocket
-    try:
-        from app.routes.websocket import manager
-        await manager.broadcast({
-            "type": "new_complaint",
-            "complaint_id": str(complaint.id),
-            "channel": channel,
-            "subject": complaint.subject,
-            "severity": complaint.severity,
-            "category": complaint.category,
-        })
-    except Exception:
-        pass
-
     return complaint
 
 
@@ -164,18 +149,6 @@ async def simulate_burst(count: int = 5, db: AsyncSession = Depends(get_db)):
             "severity": complaint.severity,
             "category": complaint.category,
         })
-
-        try:
-            from app.routes.websocket import manager
-            await manager.broadcast({
-                "type": "new_complaint",
-                "complaint_id": str(complaint.id),
-                "channel": ch,
-                "subject": complaint.subject,
-                "severity": complaint.severity,
-            })
-        except Exception:
-            pass
 
     return {"simulated": len(results), "complaints": results}
 

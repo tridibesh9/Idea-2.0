@@ -1,0 +1,17 @@
+Content-Type: multipart/mixed; boundary="===============4172122116913342862=="
+MIME-Version: 1.0
+From: David Miller <david.miller@example.com>
+To: 
+Subject: Double charge on my savings account
+Message-ID: <1fb3225b-2ee9-4142-b9a0-7bf8a9f41ce9@client.example.com>
+Date: Sun, 31 May 2026 07:24:40 +0000
+
+--===============4172122116913342862==
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+SGVsbG8sIEkgc2VlIHR3byBpZGVudGljYWwgY2hhcmdlcyBvZiAkMTUwLjAwIG9uIG15IHNhdmlu
+Z3MgYWNjb3VudCB0b2RheS4gUGxlYXNlIHJlZnVuZCBvbmUgb2YgdGhlbS4=
+
+--===============4172122116913342862==--

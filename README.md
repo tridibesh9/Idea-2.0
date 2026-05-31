@@ -23,14 +23,15 @@ The dashboard is accessible locally at `http://localhost:5173` (Vite dev server)
 ## How to Run Locally
 
 1. Clone the repository.
-2. Create a `.env` file in the `backend` directory with the following variables:
-   - `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/complaints`
-   - `GEMINI_API_KEY=your-gemini-api-key`
+2. Create a `.env` file in the `backend` directory with the following environment variables from `.env.example`:
+   ```bash
+   cp .env.example .env
+   ```
 3. Start the backend:
    ```bash
    cd backend
-   uv venv
-   uv pip install -r requirements.txt
+   python -m venv venv
+   python -m pip install -r requirements.txt
    uvicorn app.main:app --reload
    ```
 4. Start the frontend:
@@ -164,7 +165,7 @@ The system uses an evaluation dataset generated via the seeding tool [generate_c
 ## Contact
 For any queries about this submission:
 
-Team Name: Overclocked4
-Institute: Indian Institute of Technology, Kharagpur
-Email: byte
-iDEA 2.0 Phase 2 Submission
+- Team Name: Overclocked4
+- Institute: Indian Institute of Technology, Kharagpur
+- Email: aryaan.sinha100@gmail.com, bytemysticop@gmail.com
+- iDEA 2.0 Phase 2 Submission

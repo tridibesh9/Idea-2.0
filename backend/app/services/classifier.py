@@ -20,6 +20,7 @@ Analyze the following customer complaint (and any attached image, if provided) a
 - confidence: your confidence in this classification from 0.0 to 1.0
 - regulatory_flags: array of flags if any apply: ["legal_mentioned", "regulator_mentioned", "ombudsman_mentioned", "lawsuit_mentioned", "discrimination_mentioned"]. Empty array if none.
 - next_best_action: A concise sentence suggesting the best action for the agent to take (e.g., "Issue full refund immediately", "Escalate to technical support team").
+- subject: A concise, professional 3-6 word summary of the complaint (e.g., "Incorrect Late Fee Applied", "Mobile App Login Crash").
 
 Channel: {channel}
 Complaint: {text}
@@ -120,6 +121,8 @@ def _fallback_classify(text: str) -> ComplaintClassification:
         flags.append("ombudsman_mentioned")
     if "lawsuit" in text_lower:
         flags.append("lawsuit_mentioned")
+    words = text.split()
+    fallback_subject = " ".join(words[:5]) + ("..." if len(words) > 5 else "")
 
     return ComplaintClassification(
         category=category,
@@ -130,5 +133,6 @@ def _fallback_classify(text: str) -> ComplaintClassification:
         key_issues=[],
         confidence=0.5,
         regulatory_flags=flags,
-        next_best_action="Investigate issue and respond to customer."
+        next_best_action="Investigate issue and respond to customer.",
+        subject=fallback_subject
     )

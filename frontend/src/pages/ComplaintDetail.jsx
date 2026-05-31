@@ -247,7 +247,8 @@ export default function ComplaintDetail() {
               <History size={16} /> Communication Timeline
             </h3>
             <div className="space-y-4 max-h-[500px] overflow-y-auto">
-              <div className="flex justify-start">
+              {messages.length === 0 ? (
+                <div className="flex justify-start">
                   <div className="max-w-[75%] rounded-xl px-4 py-3 text-sm bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200 border dark:border-gray-600">
                     <p className="text-xs font-semibold mb-2 opacity-70">Original Complaint</p>
                     <p className="whitespace-pre-wrap">{complaint.body}</p>
@@ -262,21 +263,46 @@ export default function ComplaintDetail() {
                     </div>
                     <p className="text-[10px] mt-2 opacity-50">{new Date(complaint.created_at).toLocaleString()}</p>
                   </div>
-              </div>
-
-              {messages.filter(m => m.created_at !== complaint.created_at).map((msg) => (
-                <div key={msg.id} className={`flex ${msg.sender_type === 'customer' ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`max-w-[75%] rounded-xl px-4 py-2 text-sm ${
-                    msg.sender_type === 'customer' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200 border dark:border-gray-600' :
-                    msg.sender_type === 'system' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
-                    'bg-blue-600 text-white shadow-sm'
-                  }`}>
-                    <p className="text-xs font-medium mb-1 opacity-70">{msg.sender_name || msg.sender_type}</p>
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                    <p className="text-[10px] mt-1 opacity-50">{new Date(msg.created_at).toLocaleString()}</p>
-                  </div>
                 </div>
-              ))}
+              ) : (
+                [...messages]
+                  .sort((a, b) => {
+                    const parseDate = (dStr) => {
+                      if (!dStr) return 0;
+                      const hasTz = dStr.endsWith('Z') || /\+\d{2}:\d{2}$/.test(dStr) || /-\d{2}:\d{2}$/.test(dStr);
+                      return new Date(hasTz ? dStr : dStr + 'Z').getTime();
+                    };
+                    return parseDate(a.created_at) - parseDate(b.created_at);
+                  })
+                  .map((msg, index) => {
+                    const isOriginal = index === 0;
+                    return (
+                      <div key={msg.id} className={`flex ${msg.sender_type === 'customer' ? 'justify-start' : 'justify-end'}`}>
+                        <div className={`max-w-[75%] rounded-xl px-4 ${isOriginal ? 'py-3' : 'py-2'} text-sm ${
+                          msg.sender_type === 'customer' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200 border dark:border-gray-600' :
+                          msg.sender_type === 'system' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
+                          'bg-blue-600 text-white shadow-sm'
+                        }`}>
+                          <p className="text-xs font-semibold mb-2 opacity-70">
+                            {isOriginal ? 'Original Complaint' : (msg.sender_name || msg.sender_type)}
+                          </p>
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                          {isOriginal && (
+                            <div className="mt-3">
+                              <img 
+                                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/complaints/${complaint.id}/image`} 
+                                alt="User Attachment" 
+                                className="max-w-full h-auto rounded-lg border border-gray-300 dark:border-gray-600"
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                              />
+                            </div>
+                          )}
+                          <p className="text-[10px] mt-2 opacity-50">{new Date(msg.created_at).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
             </div>
 
             {/* Reply Box */}

@@ -56,5 +56,6 @@ export const simulateBurst = (count = 5) =>
 export const simulateIncomingTelegram = (data) => api.post("/simulator/telegram/incoming", data);
 export const simulateIncomingEmail = (data) => api.post("/simulator/email/incoming", data);
 export const getSentMessages = () => api.get("/simulator/sent-messages");
+export const generateMissingEmbeddings = () => api.post("/complaints/generate-missing-embeddings");
 
 export default api;

@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Mail, MessageCircle, Twitter, AlertCircle, RefreshCw, Send, CheckCircle2 } from 'lucide-react';
-import { 
-  simulateIncomingEmail, 
-  simulateIncomingTelegram, 
+import { Mail, MessageCircle, Twitter, AlertCircle, RefreshCw, Send, CheckCircle2, Cpu } from 'lucide-react';
+import {
+  simulateIncomingEmail,
+  simulateIncomingTelegram,
   getSentMessages,
-  createComplaint
+  createComplaint,
+  generateMissingEmbeddings
 } from '../api';
 
 export default function IngestionSimulator() {
   const [loading, setLoading] = useState(null);
   const [result, setResult] = useState(null);
-  
+
   // Custom incoming email state
   const [emailForm, setEmailForm] = useState({
     from_name: 'David Miller',
@@ -81,8 +82,8 @@ export default function IngestionSimulator() {
     setResult(null);
     try {
       const res = await simulateIncomingEmail(emailForm);
-      setResult({ 
-        success: true, 
+      setResult({
+        success: true,
         message: `EML file '${res.data.file}' written to mock_emails/inbox. The background listener will ingest it shortly! Check the complaints feed.`,
         source: 'Mock Inbound Email'
       });
@@ -117,6 +118,28 @@ export default function IngestionSimulator() {
     }
   };
 
+  const handleGenerateMissingEmbeddings = async () => {
+    setLoading('embeddings');
+    setResult(null);
+    try {
+      const res = await generateMissingEmbeddings();
+      setResult({
+        success: true,
+        message: `Successfully backfilled embeddings for ${res.data.processed} complaint(s) (Total complaints with missing embeddings was ${res.data.total_missing}).${
+          res.data.errors && res.data.errors.length > 0 
+            ? ` Warnings: ${res.data.errors.join('; ')}`
+            : ''
+        }`,
+        source: 'Vector Embedding Backfill'
+      });
+    } catch (err) {
+      console.error(err);
+      setResult({ error: 'Failed to generate vector embeddings for existing complaints.' });
+    } finally {
+      setLoading(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto py-6 space-y-8">
       <div>
@@ -128,34 +151,37 @@ export default function IngestionSimulator() {
 
       {/* Main Grid: Simulation Forms (Left) and Logs (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
+
         {/* Left Column: Intake simulators */}
         <div className="space-y-6">
-          
-          {/* Quick Simulators */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-6 shadow-sm">
-            <h3 className="text-base font-bold text-gray-800 dark:text-gray-200 mb-4">Quick Intake Simulators</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={() => handleSimulateQuick('twitter')}
-                disabled={loading !== null}
-                className="p-4 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/30 border border-blue-100 dark:border-blue-800 rounded-xl flex flex-col items-center text-center transition"
-              >
-                <Twitter size={24} className="text-blue-500 mb-2" />
-                <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Simulate Tweet</span>
-                <span className="text-[10px] text-gray-400 mt-1">Exposes credit card details</span>
-              </button>
-              <button 
-                onClick={() => handleSimulateQuick('whatsapp')}
-                disabled={loading !== null}
-                className="p-4 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30 border border-green-100 dark:border-green-800 rounded-xl flex flex-col items-center text-center transition"
-              >
-                <MessageCircle size={24} className="text-green-500 mb-2" />
-                <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Simulate WhatsApp</span>
-                <span className="text-[10px] text-gray-400 mt-1">Delayed delivery check</span>
-              </button>
-            </div>
+
+          {/* Vector Embedding Backfill */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-6 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+              <Cpu className="text-indigo-500 animate-pulse" size={20} /> Vector Embeddings Backfill
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+              Scans the database for complaints without vector embeddings and triggers AI embedding generation using Gemini. Useful for migrating legacy data or resolving ingestion gaps.
+            </p>
+            <button
+              onClick={handleGenerateMissingEmbeddings}
+              disabled={loading !== null}
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex justify-center items-center gap-1.5 disabled:opacity-50 transition-colors"
+            >
+              {loading === 'embeddings' ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  Generating Embeddings...
+                </>
+              ) : (
+                <>
+                  <Cpu size={14} />
+                  Run Embedding Backfill
+                </>
+              )}
+            </button>
           </div>
+
 
           {/* Two-way Email simulator */}
           <form onSubmit={handleSimulateEmail} className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-6 shadow-sm space-y-4">
@@ -165,46 +191,46 @@ export default function IngestionSimulator() {
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <label className="text-gray-500 block mb-1">Sender Name</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={emailForm.from_name}
                   onChange={e => setEmailForm(prev => ({ ...prev, from_name: e.target.value }))}
-                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                   required
                 />
               </div>
               <div>
                 <label className="text-gray-500 block mb-1">Sender Email</label>
-                <input 
-                  type="email" 
+                <input
+                  type="email"
                   value={emailForm.from_email}
                   onChange={e => setEmailForm(prev => ({ ...prev, from_email: e.target.value }))}
-                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                   required
                 />
               </div>
             </div>
             <div className="text-xs">
               <label className="text-gray-500 block mb-1">Subject</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={emailForm.subject}
                 onChange={e => setEmailForm(prev => ({ ...prev, subject: e.target.value }))}
-                className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                 required
               />
             </div>
             <div className="text-xs">
               <label className="text-gray-500 block mb-1">Body Content</label>
-              <textarea 
+              <textarea
                 value={emailForm.body}
                 onChange={e => setEmailForm(prev => ({ ...prev, body: e.target.value }))}
                 rows={3}
-                className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                 required
               />
             </div>
-            <button 
+            <button
               type="submit"
               disabled={loading !== null}
               className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex justify-center items-center gap-1 disabled:opacity-50"
@@ -222,36 +248,36 @@ export default function IngestionSimulator() {
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <label className="text-gray-500 block mb-1">Chat ID (External ID)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={tgForm.chat_id}
                   onChange={e => setTgForm(prev => ({ ...prev, chat_id: e.target.value }))}
-                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                   required
                 />
               </div>
               <div>
                 <label className="text-gray-500 block mb-1">First Name</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={tgForm.first_name}
                   onChange={e => setTgForm(prev => ({ ...prev, first_name: e.target.value }))}
-                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                  className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                   required
                 />
               </div>
             </div>
             <div className="text-xs">
               <label className="text-gray-500 block mb-1">Message Body</label>
-              <textarea 
+              <textarea
                 value={tgForm.text}
                 onChange={e => setTgForm(prev => ({ ...prev, text: e.target.value }))}
                 rows={2}
-                className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200" 
+                className="w-full border dark:border-gray-600 rounded p-2 bg-white dark:bg-gray-700 dark:text-gray-200"
                 required
               />
             </div>
-            <button 
+            <button
               type="submit"
               disabled={loading !== null}
               className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex justify-center items-center gap-1 disabled:opacity-50"
@@ -265,24 +291,24 @@ export default function IngestionSimulator() {
 
         {/* Right Column: Outgoing Sent Logs Center */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 shadow-sm flex flex-col h-[750px]">
-          
+
           {/* Header tabs */}
           <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50 rounded-t-xl">
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={() => setActiveLogTab('email')}
                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${activeLogTab === 'email' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
               >
                 Mock Outbox (Emails)
               </button>
-              <button 
+              <button
                 onClick={() => setActiveLogTab('telegram')}
                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${activeLogTab === 'telegram' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
               >
                 Mock Outbox (Telegram)
               </button>
             </div>
-            <button 
+            <button
               onClick={fetchLogs}
               disabled={refreshingLogs}
               className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-40"

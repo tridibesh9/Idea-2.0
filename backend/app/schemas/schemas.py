@@ -34,6 +34,7 @@ class ComplaintClassification(BaseModel):
     confidence: float | None = None
     regulatory_flags: list[str] = []
     next_best_action: str | None = None
+    subject: str | None = None
 
 
 class ComplaintUpdate(BaseModel):

@@ -4,6 +4,12 @@ export default function useWebSocket(onMessage) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
+  const onMessageRef = useRef(onMessage);
+
+  // Keep callback reference updated
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   const connect = useCallback(() => {
     const viteApiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -23,8 +29,8 @@ export default function useWebSocket(onMessage) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type !== 'pong' && onMessage) {
-          onMessage(data);
+        if (data.type !== 'pong' && onMessageRef.current) {
+          onMessageRef.current(data);
         }
       } catch (e) {
         // ignore non-JSON
@@ -43,7 +49,7 @@ export default function useWebSocket(onMessage) {
     };
 
     wsRef.current = ws;
-  }, [onMessage]);
+  }, []); // Connect has no changing dependencies now!
 
   useEffect(() => {
     connect();

@@ -18,6 +18,17 @@ const EVENT_COLORS = {
   status_change: 'text-yellow-500',
 };
 
+const formatChannelName = (channel) => {
+  if (!channel) return 'Unknown';
+  if (channel === 'telegram') return 'Telegram';
+  if (channel === 'email') return 'Email';
+  if (channel === 'twitter') return 'Twitter';
+  if (channel === 'chat') return 'Chat';
+  if (channel === 'phone') return 'Phone';
+  if (channel === 'web_form') return 'Web Form';
+  return channel.charAt(0).toUpperCase() + channel.slice(1);
+};
+
 export default function LiveFeed() {
   const [events, setEvents] = useState([]);
   const addToast = useToast();
@@ -33,7 +44,7 @@ export default function LiveFeed() {
     // Show toast notification
     if (data.type === 'new_complaint') {
       addToast(
-        `New ${data.severity || ''} complaint via ${data.channel}: ${data.subject?.slice(0, 50) || 'No subject'}`,
+        `New ${data.severity || ''} complaint via ${formatChannelName(data.channel)}: ${data.subject?.slice(0, 50) || 'No subject'}`,
         data.severity === 'critical' ? 'error' : 'info'
       );
     } else if (data.type === 'new_message') {
@@ -82,7 +93,7 @@ export default function LiveFeed() {
                 <Icon size={14} className={`mt-0.5 flex-shrink-0 ${color}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-gray-700 dark:text-gray-300 truncate">
-                    {evt.type === 'new_complaint' && `New complaint via ${evt.channel}`}
+                    {evt.type === 'new_complaint' && `New complaint via ${formatChannelName(evt.channel)}`}
                     {evt.type === 'new_message' && `New reply from customer`}
                     {evt.type === 'sla_breach' && `SLA breached`}
                     {evt.type === 'status_change' && `Status → ${evt.status}`}

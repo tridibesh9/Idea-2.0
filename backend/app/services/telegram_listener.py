@@ -171,6 +171,8 @@ class TelegramListener:
                     complaint.key_issues = json.dumps(classification.key_issues)
                     complaint.ai_confidence_score = classification.confidence
                     complaint.regulatory_flags = json.dumps(classification.regulatory_flags)
+                    if classification.subject:
+                        complaint.subject = classification.subject
 
                     hours = SLA_HOURS.get(classification.severity, 24)
                     complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=hours)
@@ -235,6 +237,7 @@ class TelegramListener:
                             "category": complaint.category,
                             "severity": complaint.severity,
                             "customer": first_name,
+                            "channel": "telegram",
                         })
                     except Exception as e:
                         logger.warning(f"Failed to broadcast: {e}")
