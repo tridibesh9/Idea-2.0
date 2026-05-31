@@ -49,7 +49,7 @@ async def resend_inbound_webhook(request: Request, background_tasks: BackgroundT
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
-                        f"https://api.resend.com/emails/{email_id}",
+                        f"https://api.resend.com/emails/receiving/{email_id}",
                         headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"}
                     )
                     if resp.status_code == 200:
