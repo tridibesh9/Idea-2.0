@@ -1,0 +1,31 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main # Change this if your default branch is different
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to DigitalOcean Droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            # Navigate to the project directory
+            cd ${{ secrets.PROJECT_PATH }}
+            
+            # Pull the latest code
+            git pull origin main
+            
+            # Restart docker-compose services using production compose file
+            docker compose -f docker-compose.prod.yml down
+            docker compose -f docker-compose.prod.yml up -d --build
