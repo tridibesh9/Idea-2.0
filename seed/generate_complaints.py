@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from google import genai
 
 import asyncpg
-
+#hi
 # Load env variables
 load_dotenv()
 load_dotenv("../.env")
