@@ -232,12 +232,8 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
 
             await db.commit()
 
-            # Invalidate analytics cache
-            try:
-                from app.services.analytics_cache import analytics_cache
-                analytics_cache.invalidate_all()
-            except Exception:
-                pass
+            # Analytics cache invalidation removed to allow TTL-based expiration
+            pass
 
             # Broadcast to WebSocket if callback is set
             if broadcast_callback:

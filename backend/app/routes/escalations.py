@@ -27,7 +27,7 @@ async def list_escalations(
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Escalation).order_by(Escalation.created_at.desc())
+    query = select(Escalation).order_by(Escalation.created_at.desc()).limit(100)
     if status:
         query = query.where(Escalation.status == status)
     result = await db.execute(query)

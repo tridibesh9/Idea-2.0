@@ -239,12 +239,8 @@ class TelegramListener:
 
                 await db.commit()
 
-                # Invalidate analytics cache
-                try:
-                    from app.services.analytics_cache import analytics_cache
-                    analytics_cache.invalidate_all()
-                except Exception:
-                    pass
+                # Analytics cache invalidation removed to allow TTL-based expiration
+                pass
 
                 if self._broadcast_callback:
                     try:

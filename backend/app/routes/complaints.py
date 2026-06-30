@@ -180,7 +180,6 @@ async def create_complaint(
     except Exception:
         pass
 
-    analytics_cache.invalidate_all()
     await db.refresh(complaint, attribute_names=["entities"])
     return complaint
 
@@ -316,7 +315,6 @@ async def update_complaint(
     except Exception:
         pass
 
-    analytics_cache.invalidate_all()
     await db.refresh(complaint, attribute_names=["entities"])
     return complaint
 
