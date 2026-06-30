@@ -13,6 +13,8 @@ python-dotenv==1.0.1
 alembic==1.13.0
 httpx
 apscheduler==3.10.4
+sqlalchemy-utils==0.41.2
+cryptography==42.0.5
 
 # Email handling
 imap-tools
@@ -23,4 +25,5 @@ email-validator
 # Scientific / Clustering libraries
 numpy
 scikit-learn
+
 

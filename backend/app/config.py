@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
     GEMINI_MODEL: str = "gemini-2.5-flash"
     EMBEDDING_MODEL: str = "models/gemini-embedding-2"
+    
+    # Security
+    ENCRYPTION_KEY: str = "qMbafBAz52YvqrQxt3IxeyyADa6GG5Z77jauHSU7GjI="
+    BLIND_INDEX_SALT: str = "super-secret-salt-for-blind-index"
 
     # Email Configuration
     IMAP_HOST: str = "imap.gmail.com"

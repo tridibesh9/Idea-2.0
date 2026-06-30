@@ -51,13 +51,17 @@ async def create_complaint(
     # Find or create customer
     customer = None
     if payload.customer_email:
+        from app.services.security import get_blind_index
+        email_hash = get_blind_index(payload.customer_email)
         result = await db.execute(
-            select(Customer).where(Customer.email == payload.customer_email)
+            select(Customer).where(Customer.email_hash == email_hash)
         )
         customer = result.scalar_one_or_none()
         if not customer:
             customer = Customer(
-                name=payload.customer_name or "Unknown", email=payload.customer_email
+                name=payload.customer_name or "Unknown", 
+                email=payload.customer_email,
+                email_hash=email_hash
             )
             db.add(customer)
             await db.flush()

@@ -12,10 +12,21 @@ import os
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from google import genai
-
 import asyncpg
-#hi
-# Load env variables
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
+from cryptography.fernet import Fernet
+from app.services.security import get_encryption_key, get_blind_index
+from sqlalchemy_utils.types.encrypted.encrypted_type import FernetEngine
+
+engine = FernetEngine()
+engine._update_key(get_encryption_key())
+
+def encrypt_val(val):
+    if val is None:
+        return None
+    return engine.encrypt(str(val))
+
 load_dotenv()
 load_dotenv("../.env")
 
@@ -291,8 +302,9 @@ async def seed():
             CREATE TABLE IF NOT EXISTS customers (
                 id UUID PRIMARY KEY,
                 name VARCHAR(200) NOT NULL,
-                email VARCHAR(300) UNIQUE,
-                phone VARCHAR(50),
+                email TEXT,
+                email_hash VARCHAR(100) UNIQUE,
+                phone TEXT,
                 account_id VARCHAR(100),
                 notes TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW()
@@ -495,17 +507,20 @@ async def seed():
         for i, name in enumerate(CUSTOMER_NAMES):
             cid = uuid.uuid4()
             email = f"{name.lower().replace(' ', '.')}@example.com"
+            email_hash = get_blind_index(email)
+            enc_email = encrypt_val(email)
             row = await conn.fetchrow(
                 """
-                INSERT INTO customers (id, name, email, account_id) 
-                VALUES ($1, $2, $3, $4) 
-                ON CONFLICT (email) 
+                INSERT INTO customers (id, name, email, email_hash, account_id) 
+                VALUES ($1, $2, $3, $4, $5) 
+                ON CONFLICT (email_hash) 
                 DO UPDATE SET name = EXCLUDED.name 
                 RETURNING id
                 """,
                 cid,
                 name,
-                email,
+                enc_email,
+                email_hash,
                 f"ACC-{10000 + i}",
             )
             customer_ids.append(row["id"])
@@ -562,6 +577,7 @@ async def seed():
             customer_id = random.choice(customer_ids)
             agent_id = random.choice(agent_ids) if status != "new" else None
 
+            enc_body = encrypt_val(body)
             await conn.execute(
                 """
                 INSERT INTO complaints (id, channel, subject, body, customer_id, assigned_agent_id,
@@ -573,7 +589,7 @@ async def seed():
                 complaint_id,
                 channel,
                 subject,
-                body,
+                enc_body,
                 customer_id,
                 agent_id,
                 category,

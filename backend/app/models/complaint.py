@@ -4,7 +4,10 @@ from sqlalchemy import String, Float, Text, Boolean, DateTime, ForeignKey, Integ
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from pgvector.sqlalchemy import Vector
+from sqlalchemy_utils import StringEncryptedType
+from sqlalchemy_utils.types.encrypted.encrypted_type import FernetEngine
 from app.database import Base
+from app.services.security import get_encryption_key
 
 
 class Complaint(Base):
@@ -14,7 +17,7 @@ class Complaint(Base):
     external_id: Mapped[str | None] = mapped_column(String(100), index=True)
     channel: Mapped[str] = mapped_column(String(50))  # email, chat, twitter, phone, web_form
     subject: Mapped[str | None] = mapped_column(String(500))
-    body: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(StringEncryptedType(Text, get_encryption_key, FernetEngine))
 
     # Relationships
     customer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id"))
