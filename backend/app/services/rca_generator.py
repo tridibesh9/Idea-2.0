@@ -26,15 +26,17 @@ Return ONLY a valid JSON object matching this schema:
 }}
 """
 
-async def generate_rca(db: AsyncSession, limit: int = 50) -> dict | None:
+async def generate_rca(db: AsyncSession, limit: int = 50, complaint_ids: list[str] | None = None) -> dict | None:
     if not client:
         return None
         
-    result = await db.execute(
-        select(Complaint)
-        .order_by(desc(Complaint.created_at))
-        .limit(limit)
-    )
+    query = select(Complaint)
+    if complaint_ids:
+        query = query.where(Complaint.id.in_(complaint_ids))
+    else:
+        query = query.order_by(desc(Complaint.created_at)).limit(limit)
+
+    result = await db.execute(query)
     complaints = result.scalars().all()
     
     if not complaints:

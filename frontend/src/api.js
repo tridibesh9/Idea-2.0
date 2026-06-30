@@ -39,6 +39,7 @@ export const generateResponse = (id, data) =>
 
 // ── Analytics ──
 export const getAnalyticsSummary = () => api.get("/analytics/summary");
+export const generateClusterRca = (complaintIds) => api.post('/analytics/cluster-rca', { complaint_ids: complaintIds });
 export const getTrends = (params) => api.get("/analytics/trends", { params });
 export const getRootCause = (params) =>
   api.get("/analytics/root-cause", { params });

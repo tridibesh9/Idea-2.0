@@ -44,7 +44,7 @@ export default function Dashboard() {
         const [sumRes, compRes, trendsRes] = await Promise.all([
           getAnalyticsSummary(),
           getComplaints({ page: 1, page_size: 10 }),
-          getTrends({ days: 1, group_by: 'category' })
+          getTrends({ timeframe: '24h', group_by: 'category' })
         ]);
         setSummary(sumRes.data);
         setRecentComplaints(compRes.data.items);
@@ -96,6 +96,17 @@ export default function Dashboard() {
     { label: 'Avg Sentiment', value: summary?.avg_sentiment ?? '—', icon: TrendingDown, gradient: 'from-purple-500 to-fuchsia-500', shadow: 'shadow-purple-500/20' },
   ];
 
+  const topTrend = (() => {
+    if (!trends || trends.length === 0) return null;
+    const counts = {};
+    trends.forEach(t => {
+      const cat = t.category || 'Unknown';
+      counts[cat] = (counts[cat] || 0) + t.count;
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return { category: sorted[0][0], count: sorted[0][1] };
+  })();
+
   return (
     <div className="space-y-8 animate-fade-in">
       <div className="flex items-center gap-3">
@@ -106,7 +117,7 @@ export default function Dashboard() {
       </div>
 
       {/* Trending Topics Panel */}
-      {trends && trends.length > 0 && (
+      {topTrend && (
         <div className="glass-card rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-l-4 border-rose-500 bg-gradient-to-r from-rose-500/10 to-transparent">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-500">
@@ -118,7 +129,7 @@ export default function Dashboard() {
                 <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white uppercase tracking-wider font-bold">24h</span>
               </h3>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Spike detected: <span className="font-semibold text-rose-500 dark:text-rose-400">+{trends[0]?.count || 0}</span> complaints related to <span className="font-semibold text-slate-800 dark:text-slate-200">'{trends[0]?.category || 'Unknown'}'</span>
+                Spike detected: <span className="font-semibold text-rose-500 dark:text-rose-400">+{topTrend.count}</span> complaints related to <span className="font-semibold text-slate-800 dark:text-slate-200">'{topTrend.category}'</span>
               </p>
             </div>
           </div>

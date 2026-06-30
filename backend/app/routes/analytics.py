@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,25 +65,42 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
 
 @router.get("/trends", response_model=list[TrendDataPoint])
 async def get_trends(
-    days: int = Query(30, ge=1, le=365),
+    timeframe: str = Query("30d", regex="^(1h|12h|24h|7d|30d)$"),
     group_by: str = Query("category", regex="^(category|channel|severity)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    cache_key = f"trends_{days}_{group_by}"
+    # Use timeframe parameter as cache key instead of days
+    cache_key = f"trends_{timeframe}_{group_by}"
     cached = analytics_cache.get(cache_key)
     if cached is not None:
         return cached
 
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(timezone.utc)
+    if timeframe == "1h":
+        since = now - timedelta(hours=1)
+        date_expr = func.to_char(Complaint.created_at, 'YYYY-MM-DD HH24:MI')
+    elif timeframe == "12h":
+        since = now - timedelta(hours=12)
+        date_expr = func.to_char(Complaint.created_at, 'YYYY-MM-DD HH24:00')
+    elif timeframe == "24h":
+        since = now - timedelta(hours=24)
+        date_expr = func.to_char(Complaint.created_at, 'YYYY-MM-DD HH24:00')
+    elif timeframe == "7d":
+        since = now - timedelta(days=7)
+        date_expr = func.date(Complaint.created_at)
+    else:  # 30d
+        since = now - timedelta(days=30)
+        date_expr = func.date(Complaint.created_at)
+
     result = await db.execute(
         select(
-            func.date(Complaint.created_at).label("date"),
+            date_expr.label("date"),
             getattr(Complaint, group_by).label("group_field"),
             func.count(Complaint.id).label("count"),
         )
         .where(Complaint.created_at >= since)
-        .group_by(func.date(Complaint.created_at), getattr(Complaint, group_by))
-        .order_by(func.date(Complaint.created_at))
+        .group_by(date_expr, getattr(Complaint, group_by))
+        .order_by(date_expr)
     )
     rows = result.all()
     field_map = {"category": "category", "channel": "channel", "severity": "category"}
@@ -108,6 +125,22 @@ async def get_root_cause(
     res = await generate_root_cause_insight(db, days)
     analytics_cache.set(cache_key, res)
     return res
+
+
+@router.post("/cluster-rca", response_model=RootCauseInsight)
+async def get_cluster_rca(
+    complaint_ids: list[str] = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await generate_rca(db, limit=50, complaint_ids=complaint_ids)
+    if not result:
+        return RootCauseInsight(
+            summary="No valid complaints found in cluster to analyze.",
+            top_categories=[],
+            top_products=[],
+            recommendations=[]
+        )
+    return RootCauseInsight(**result)
 
 
 @router.get("/weekly-summary")
