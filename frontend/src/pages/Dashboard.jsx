@@ -7,9 +7,10 @@ import {
   MessageSquare,
   ShieldAlert,
   ChevronRight,
-  Activity
+  Activity,
+  Flame
 } from 'lucide-react';
-import { getAnalyticsSummary, getComplaints } from '../api';
+import { getAnalyticsSummary, getComplaints, getTrends } from '../api';
 import { SkeletonKPIs, SkeletonTable } from '../components/Skeleton';
 import LiveFeed from '../components/LiveFeed';
 import clsx from 'clsx';
@@ -33,18 +34,21 @@ const STATUS_COLORS = {
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [recentComplaints, setRecentComplaints] = useState([]);
+  const [trends, setTrends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     async function load() {
       try {
-        const [sumRes, compRes] = await Promise.all([
+        const [sumRes, compRes, trendsRes] = await Promise.all([
           getAnalyticsSummary(),
           getComplaints({ page: 1, page_size: 10 }),
+          getTrends({ days: 1, group_by: 'category' })
         ]);
         setSummary(sumRes.data);
         setRecentComplaints(compRes.data.items);
+        setTrends(trendsRes.data);
       } catch (err) {
         setError('Failed to load dashboard. Is the backend running?');
         console.error('Failed to load dashboard:', err);
@@ -100,6 +104,29 @@ export default function Dashboard() {
         </div>
         <h2 className="text-3xl font-bold font-heading bg-gradient-to-r from-slate-800 to-slate-600 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">Overview Dashboard</h2>
       </div>
+
+      {/* Trending Topics Panel */}
+      {trends && trends.length > 0 && (
+        <div className="glass-card rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-l-4 border-rose-500 bg-gradient-to-r from-rose-500/10 to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-500">
+              <Flame size={24} className="animate-pulse" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                Trending Anomalies 
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white uppercase tracking-wider font-bold">24h</span>
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Spike detected: <span className="font-semibold text-rose-500 dark:text-rose-400">+{trends[0]?.count || 0}</span> complaints related to <span className="font-semibold text-slate-800 dark:text-slate-200">'{trends[0]?.category || 'Unknown'}'</span>
+              </p>
+            </div>
+          </div>
+          <Link to="/analytics" className="px-4 py-2 bg-white dark:bg-dark-700 text-slate-800 dark:text-white rounded-xl text-sm font-semibold shadow-sm hover:shadow transition-all whitespace-nowrap">
+            Investigate Trend
+          </Link>
+        </div>
+      )}
 
       {/* Modern KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">

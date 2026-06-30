@@ -28,7 +28,6 @@ Complaint: {text}
 
 Return ONLY the JSON object, no other text."""
 
-
 async def classify_complaint(
     text: str,
     channel: str,
