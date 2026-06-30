@@ -3,15 +3,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.complaint import Complaint
 from app.services.duplicate_detector import find_similar
+from app.schemas.schemas import SimilarComplaint
 
-async def assign_incident_group(complaint_id: uuid.UUID, db: AsyncSession) -> str:
+async def assign_incident_group(
+    complaint_id: uuid.UUID,
+    db: AsyncSession,
+    source_embedding: list[float] | None = None,
+    similar: list[SimilarComplaint] | None = None,
+) -> str:
     """
     Assigns an incident group ID to a complaint.
     It checks for similar complaints. If a highly similar one exists, it joins its group.
     Otherwise, it creates a new group.
     """
-    # Use existing duplicate detector to find semantically similar complaints
-    similar = await find_similar(complaint_id, db, limit=1)
+    if similar is None:
+        # Use existing duplicate detector to find semantically similar complaints
+        similar = await find_similar(complaint_id, db, limit=1, source_embedding=source_embedding)
     
     if similar and similar[0].similarity_score > 0.85:
         # High similarity, let's see if the similar complaint has an incident group

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -36,6 +36,8 @@ from app.services.telegram_sender import send_telegram_reply
 from app.services.pii_redactor import pii_redactor
 from app.services.entity_extractor import extract_entities
 from app.services.grouping_engine import assign_incident_group
+from app.services.complaint_pipeline import process_complaint_pipeline
+from app.services.analytics_cache import analytics_cache
 
 router = APIRouter()
 
@@ -60,10 +62,21 @@ async def create_complaint(
             db.add(customer)
             await db.flush()
 
-    # Create complaint
-    complaint = Complaint(
+    # Run unified functional pipeline
+    complaint_id = uuid.uuid4()
+    pipeline_result = await process_complaint_pipeline(
+        text=payload.body,
         channel=payload.channel,
-        subject=payload.subject,
+        db=db,
+        image_base64=payload.image_data,
+        complaint_id=complaint_id,
+    )
+
+    # Create complaint using the generated ID
+    complaint = Complaint(
+        id=pipeline_result.complaint_id,
+        channel=payload.channel,
+        subject=payload.subject or pipeline_result.classification.subject,
         body=payload.body,
         customer_id=customer.id if customer else None,
         status="new",
@@ -71,48 +84,45 @@ async def create_complaint(
     db.add(complaint)
     await db.flush()
 
-    # PII Redaction
-    safe_text, sensitive_entities = pii_redactor.redact(payload.body)
-
-    # Business Entity Extraction
-    business_entities = await extract_entities(safe_text)
-
     # Save entities
-    for token_type, tokens in sensitive_entities.items():
+    for token_type, tokens in pipeline_result.sensitive_entities.items():
         for val in tokens:
             db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
-    for be in business_entities:
+    for be in pipeline_result.classification.entities:
         db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
 
-    # AI Classification (now passes image data if available)
-    classification = await classify_complaint(payload.body, payload.channel, payload.image_data)
-    complaint.category = classification.category
-    complaint.product = classification.product
-    complaint.severity = classification.severity
-    complaint.sentiment_score = classification.sentiment_score
-    complaint.sentiment_label = classification.sentiment_label
-    complaint.key_issues = json.dumps(classification.key_issues)
-    complaint.ai_confidence_score = classification.confidence
-    complaint.regulatory_flags = json.dumps(classification.regulatory_flags)
-    complaint.next_best_action = getattr(classification, "next_best_action", None)
+    # Save classification fields
+    complaint.category = pipeline_result.classification.category
+    complaint.product = pipeline_result.classification.product
+    complaint.severity = pipeline_result.classification.severity
+    complaint.sentiment_score = pipeline_result.classification.sentiment_score
+    complaint.sentiment_label = pipeline_result.classification.sentiment_label
+    complaint.key_issues = json.dumps(pipeline_result.classification.key_issues)
+    complaint.ai_confidence_score = pipeline_result.classification.confidence
+    complaint.regulatory_flags = json.dumps(pipeline_result.classification.regulatory_flags)
+    complaint.next_best_action = getattr(pipeline_result.classification, "next_best_action", None)
 
     # Set SLA deadline
-    hours = SLA_HOURS.get(classification.severity, 24)
+    hours = SLA_HOURS.get(pipeline_result.classification.severity, 24)
     complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=hours)
 
     # Smart Routing Auto Assignment
     from app.services.smart_router import route_complaint
     await route_complaint(complaint, db)
 
-    # Generate and store embedding
-    embedding_vector = await generate_embedding(payload.body)
-    if embedding_vector:
-        emb = ComplaintEmbedding(complaint_id=complaint.id, embedding=embedding_vector)
+    # Store embedding if generated
+    if pipeline_result.embedding:
+        emb = ComplaintEmbedding(complaint_id=complaint.id, embedding=pipeline_result.embedding)
         db.add(emb)
         await db.flush()
         
         # Grouping Engine: Assign Incident Group based on similarity
-        complaint.incident_group_id = await assign_incident_group(complaint.id, db)
+        complaint.incident_group_id = await assign_incident_group(
+            complaint.id, 
+            db, 
+            source_embedding=pipeline_result.embedding,
+            similar=pipeline_result.similar_complaints
+        )
 
     # Initial message
     msg = ComplaintMessage(
@@ -143,7 +153,7 @@ async def create_complaint(
         action="created",
         performed_by="system",
         details=json.dumps(
-            {"channel": payload.channel, "classification": classification.model_dump()}
+            {"channel": payload.channel, "classification": pipeline_result.classification.model_dump()}
         ),
     )
     db.add(audit)
@@ -166,6 +176,7 @@ async def create_complaint(
     except Exception:
         pass
 
+    analytics_cache.invalidate_all()
     await db.refresh(complaint, attribute_names=["entities"])
     return complaint
 
@@ -176,6 +187,8 @@ async def list_complaints(
     category: Optional[str] = None,
     severity: Optional[str] = None,
     channel: Optional[str] = None,
+    assigned_agent_id: Optional[uuid.UUID] = None,
+    prioritize_dept: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -195,11 +208,29 @@ async def list_complaints(
     if channel:
         query = query.where(Complaint.channel == channel)
         count_query = count_query.where(Complaint.channel == channel)
+    if assigned_agent_id:
+        query = query.where(Complaint.assigned_agent_id == assigned_agent_id)
+        count_query = count_query.where(Complaint.assigned_agent_id == assigned_agent_id)
 
     total = (await db.execute(count_query)).scalar()
+
+    # Sort matching department categories at higher priority
+    if prioritize_dept:
+        from app.services.smart_router import CATEGORY_TO_DEPARTMENT
+        dept_categories = [cat for cat, dept in CATEGORY_TO_DEPARTMENT.items() if dept == prioritize_dept]
+        if dept_categories:
+            dept_case = case(
+                (Complaint.category.in_(dept_categories), 0),
+                else_=1
+            )
+            query = query.order_by(dept_case, Complaint.created_at.desc())
+        else:
+            query = query.order_by(Complaint.created_at.desc())
+    else:
+        query = query.order_by(Complaint.created_at.desc())
+
     query = (
-        query.order_by(Complaint.created_at.desc())
-        .offset((page - 1) * page_size)
+        query.offset((page - 1) * page_size)
         .limit(page_size)
     )
     result = await db.execute(query)
@@ -281,6 +312,7 @@ async def update_complaint(
     except Exception:
         pass
 
+    analytics_cache.invalidate_all()
     await db.refresh(complaint, attribute_names=["entities"])
     return complaint
 
@@ -307,11 +339,71 @@ async def add_message(
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
+    content_to_save = payload.content
+    
+    # Redact customer messages and evaluate automatic escalation
+    if payload.sender_type == "customer":
+        from app.services.pii_redactor import pii_redactor
+        safe_content, _ = pii_redactor.redact(payload.content)
+        content_to_save = safe_content
+
+        # Automatic Escalation check
+        try:
+            from app.services.classifier import classify_complaint
+            from app.models.agent import Agent
+            from app.models.escalation import Escalation
+            import logging
+            
+            logger = logging.getLogger("complaints_messages")
+
+            # Run classifier on the customer's message
+            classification = await classify_complaint(safe_content, complaint.channel, safe_text=safe_content)
+            
+            # Check if severity becomes critical or sentiment score decreases rapidly (< -0.7)
+            if classification.severity == "critical" or classification.sentiment_score < -0.7:
+                # Find Senior Official
+                senior_res = await db.execute(select(Agent).where(Agent.email == "senior@complaintiq.com"))
+                senior_official = senior_res.scalar_one_or_none()
+                
+                if senior_official and complaint.assigned_agent_id != senior_official.id:
+                    prev_agent_id = complaint.assigned_agent_id
+                    complaint.assigned_agent_id = senior_official.id
+                    complaint.status = "escalated"
+                    complaint.severity = classification.severity
+                    complaint.sentiment_score = classification.sentiment_score
+                    complaint.sentiment_label = classification.sentiment_label
+                    
+                    escalation = Escalation(
+                        complaint_id=complaint.id,
+                        escalated_by="system",
+                        reason=f"Automatic escalation: Customer message severity escalated to critical or sentiment dropped rapidly (sentiment score: {classification.sentiment_score}).",
+                        previous_agent_id=prev_agent_id,
+                        new_agent_id=senior_official.id,
+                        status="active"
+                    )
+                    db.add(escalation)
+                    
+                    esc_audit = AuditLog(
+                        complaint_id=complaint.id,
+                        action="complaint_escalated",
+                        performed_by="system",
+                        details=json.dumps({
+                            "reason": "Automatic severity/sentiment escalation",
+                            "severity": classification.severity,
+                            "sentiment_score": classification.sentiment_score
+                        })
+                    )
+                    db.add(esc_audit)
+                    logger.info(f"Automatically escalated complaint {complaint.id} to Senior Official.")
+        except Exception as e:
+            import logging
+            logging.getLogger("complaints_messages").error(f"Error checking automatic escalation: {e}")
+
     msg = ComplaintMessage(
         complaint_id=complaint_id,
         sender_type=payload.sender_type,
         sender_name=payload.sender_name,
-        content=payload.content,
+        content=content_to_save,
         channel=payload.channel,
     )
     db.add(msg)

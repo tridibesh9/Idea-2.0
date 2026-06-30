@@ -35,6 +35,7 @@ class ComplaintClassification(BaseModel):
     regulatory_flags: list[str] = []
     next_best_action: str | None = None
     subject: str | None = None
+    entities: list[dict] = []
 
 
 class ComplaintUpdate(BaseModel):

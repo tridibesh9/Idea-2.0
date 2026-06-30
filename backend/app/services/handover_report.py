@@ -48,8 +48,15 @@ async def generate_handover_report(complaint_id: uuid.UUID, db: AsyncSession) ->
     if not complaint:
         return None
         
+    from app.services.pii_redactor import pii_redactor
+    
     entities_str = "\n".join([f"- {e.entity_type}: {e.entity_value}" for e in complaint.entities])
-    timeline_str = "\n".join([f"[{m.created_at}] {m.sender_type.upper()}: {m.content}" for m in complaint.messages])
+    
+    timeline_messages = []
+    for m in complaint.messages:
+        safe_content, _ = pii_redactor.redact(m.content)
+        timeline_messages.append(f"[{m.created_at}] {m.sender_type.upper()}: {safe_content}")
+    timeline_str = "\n".join(timeline_messages)
     
     prompt = HANDOVER_PROMPT.format(
         subject=complaint.subject,

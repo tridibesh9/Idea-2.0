@@ -5,10 +5,12 @@ import {
 } from 'lucide-react';
 import {
   getComplaint, getTimeline, getSimilar, generateResponse, addMessage, getAuditTrail, updateComplaint, getHandoverReport,
-  sendEmailReply, searchKnowledgeBase,
+  sendEmailReply, searchKnowledgeBase, createEscalation, getAgents,
 } from '../api';
 import { SkeletonCard } from '../components/Skeleton';
 import useWebSocket from '../hooks/useWebSocket';
+import { useToast } from '../components/Toast';
+import { AlertTriangle } from 'lucide-react';
 
 const SEVERITY_COLORS = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
 const STATUS_COLORS = { new: '#3b82f6', open: '#8b5cf6', in_progress: '#f59e0b', escalated: '#ef4444', resolved: '#22c55e', closed: '#6b7280' };
@@ -32,14 +34,65 @@ export default function ComplaintDetail() {
   const [handoverReport, setHandoverReport] = useState('');
   const [generatingHandover, setGeneratingHandover] = useState(false);
 
+  // Manual Escalation State
+  const [agents, setAgents] = useState([]);
+  const [showEscalateModal, setShowEscalateModal] = useState(false);
+  const [escalateReason, setEscalateReason] = useState('');
+  const [escalateTarget, setEscalateTarget] = useState('');
+  const addToast = useToast();
+
   // New message
   const [newMessage, setNewMessage] = useState('');
 
   // Knowledge Base & Refinement
   const [kbReferences, setKbReferences] = useState([]);
+  const [loadingKb, setLoadingKb] = useState(true);
   const [refineInstruction, setRefineInstruction] = useState('');
 
-  useEffect(() => { loadAll(); }, [id]);
+  useEffect(() => {
+    loadAll();
+    loadAgents();
+  }, [id]);
+
+  async function loadKb(body, category) {
+    setLoadingKb(true);
+    try {
+      const kbRes = await searchKnowledgeBase(body, category, id);
+      setKbReferences(kbRes.data);
+    } catch (err) {
+      console.error("Failed to load knowledge base:", err);
+    } finally {
+      setLoadingKb(false);
+    }
+  }
+
+  async function loadAgents() {
+    try {
+      const res = await getAgents();
+      setAgents(res.data);
+    } catch (err) {
+      console.error('Failed to load agents list', err);
+    }
+  }
+
+  async function handleEscalateSubmit(e) {
+    e.preventDefault();
+    if (!escalateReason.trim()) return;
+    try {
+      await createEscalation({
+        complaint_id: id,
+        reason: escalateReason,
+        target_agent_id: escalateTarget || null
+      });
+      addToast('Complaint escalated successfully!', 'success');
+      setShowEscalateModal(false);
+      setEscalateReason('');
+      setEscalateTarget('');
+      loadAll();
+    } catch (err) {
+      addToast('Failed to escalate complaint.', 'error');
+    }
+  }
 
   useWebSocket((data) => {
     if ((data.type === 'new_message' || data.type === 'status_change') && data.complaint_id === id) {
@@ -62,13 +115,8 @@ export default function ComplaintDetail() {
       setSimilar(sRes.data);
       setAudit(aRes.data);
 
-      // Load Knowledge Base
-      try {
-        const kbRes = await searchKnowledgeBase(cRes.data.body, cRes.data.category);
-        setKbReferences(kbRes.data);
-      } catch (err) {
-        console.error("Failed to load knowledge base:", err);
-      }
+      // Load Knowledge Base in background
+      loadKb(cRes.data.body, cRes.data.category);
     } catch (err) {
       setError('Failed to load complaint details');
       console.error(err);
@@ -327,7 +375,7 @@ export default function ComplaintDetail() {
               <button onClick={() => handleStatusChange('resolved')} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Mark Resolved</button>
             )}
             {complaint.status !== 'escalated' && complaint.status !== 'resolved' && (
-              <button onClick={() => handleStatusChange('escalated')} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700">Escalate</button>
+              <button onClick={() => setShowEscalateModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-red-500/10 transition-all transform hover:-translate-y-0.5">Escalate</button>
             )}
             {complaint.status === 'escalated' && (
               <button onClick={handleGenerateHandover} disabled={generatingHandover} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
@@ -359,7 +407,13 @@ export default function ComplaintDetail() {
             <h3 className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-3">
               <Sparkles size={16} className="text-yellow-500" /> Knowledge Base Matches
             </h3>
-            {kbReferences.length === 0 ? (
+            {loadingKb ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-4 bg-gray-100 dark:bg-gray-700 rounded-lg w-2/3"></div>
+                <div className="h-16 bg-gray-100 dark:bg-gray-700 rounded-xl w-full"></div>
+                <div className="h-4 bg-gray-100 dark:bg-gray-700 rounded-lg w-1/2"></div>
+              </div>
+            ) : kbReferences.length === 0 ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">No matching policy articles found.</p>
             ) : (
               <div className="space-y-3">
@@ -503,6 +557,60 @@ export default function ComplaintDetail() {
             <div className="mt-4 flex justify-end">
               <button onClick={() => setShowHandoverModal(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-500">Close</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Escalation Modal */}
+      {showEscalateModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white dark:bg-dark-900 border border-slate-200 dark:border-white/5 rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2 dark:text-gray-100 font-heading">
+              <AlertTriangle className="text-red-500" /> Escalate Complaint
+            </h3>
+            
+            <form onSubmit={handleEscalateSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Escalation Reason</label>
+                <textarea
+                  className="w-full border border-slate-200 dark:border-slate-800 rounded-2xl px-3 py-2 text-sm bg-slate-50 dark:bg-dark-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all h-24"
+                  placeholder="Why is this complaint being escalated?"
+                  value={escalateReason}
+                  onChange={(e) => setEscalateReason(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Assign Escalation Target (Optional)</label>
+                <select
+                  className="w-full border border-slate-200 dark:border-slate-800 rounded-2xl px-3 py-2 text-sm bg-slate-50 dark:bg-dark-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                  value={escalateTarget}
+                  onChange={(e) => setEscalateTarget(e.target.value)}
+                >
+                  <option value="">Default Supervisor (Rahul)</option>
+                  {agents.map(a => (
+                    <option key={a.id} value={a.id}>{a.name} ({a.department} • {a.role.replace('_', ' ')})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEscalateModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-500/20"
+                >
+                  Confirm Escalation
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

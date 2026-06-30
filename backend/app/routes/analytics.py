@@ -6,13 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.complaint import Complaint
 from app.schemas.schemas import AnalyticsSummary, TrendDataPoint, RootCauseInsight
-from app.services.analytics import generate_weekly_summary
-from app.services.rca_generator import generate_rca
+from app.services.analytics import generate_weekly_summary, generate_root_cause_insight
+from app.services.analytics_cache import analytics_cache
+
 router = APIRouter()
 
 
 @router.get("/summary", response_model=AnalyticsSummary)
 async def get_summary(db: AsyncSession = Depends(get_db)):
+    cache_key = "summary"
+    cached = analytics_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     open_statuses = ["new", "open", "in_progress", "escalated"]
 
     total_open = (await db.execute(
@@ -46,13 +52,15 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
         )
         avg_hours = round(total_hours / len(resolved), 1)
 
-    return AnalyticsSummary(
+    res = AnalyticsSummary(
         total_open=total_open,
         total_critical=total_critical,
         total_sla_breached=total_sla_breached,
         avg_resolution_hours=avg_hours,
         avg_sentiment=round(avg_sentiment, 2) if avg_sentiment else None,
     )
+    analytics_cache.set(cache_key, res)
+    return res
 
 
 @router.get("/trends", response_model=list[TrendDataPoint])
@@ -61,6 +69,11 @@ async def get_trends(
     group_by: str = Query("category", regex="^(category|channel|severity)$"),
     db: AsyncSession = Depends(get_db),
 ):
+    cache_key = f"trends_{days}_{group_by}"
+    cached = analytics_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
         select(
@@ -74,10 +87,12 @@ async def get_trends(
     )
     rows = result.all()
     field_map = {"category": "category", "channel": "channel", "severity": "category"}
-    return [
+    res = [
         TrendDataPoint(date=str(r.date), count=r.count, **{field_map.get(group_by, "category"): r.group_field})
         for r in rows
     ]
+    analytics_cache.set(cache_key, res)
+    return res
 
 
 @router.get("/root-cause", response_model=RootCauseInsight)
@@ -85,26 +100,36 @@ async def get_root_cause(
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ):
-    # Pass days/limit down if we want, but for deep RCA we use limit=50.
-    result = await generate_rca(db, limit=50)
-    if not result:
-        return RootCauseInsight(
-            summary="No complaints found to analyze.",
-            top_categories=[],
-            top_products=[],
-            recommendations=[]
-        )
-    return RootCauseInsight(**result)
+    cache_key = f"root_cause_{days}"
+    cached = analytics_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    res = await generate_root_cause_insight(db, days)
+    analytics_cache.set(cache_key, res)
+    return res
 
 
 @router.get("/weekly-summary")
 async def get_weekly_summary(db: AsyncSession = Depends(get_db)):
+    cache_key = "weekly_summary"
+    cached = analytics_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     summary = await generate_weekly_summary(db)
-    return {"summary": summary}
+    res = {"summary": summary}
+    analytics_cache.set(cache_key, res)
+    return res
 
 
 @router.get("/complaint-clusters")
 async def get_complaint_clusters(db: AsyncSession = Depends(get_db)):
+    cache_key = "complaint_clusters"
+    cached = analytics_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     import numpy as np
     from sklearn.cluster import KMeans
     from sklearn.decomposition import PCA
@@ -119,7 +144,6 @@ async def get_complaint_clusters(db: AsyncSession = Depends(get_db)):
     complaints = result.scalars().all()
 
     if len(complaints) < 3:
-        # Return fallback empty list
         return []
 
     # Extract embedding vectors
@@ -194,5 +218,5 @@ async def get_complaint_clusters(db: AsyncSession = Depends(get_db)):
             "cluster_label": cluster_themes[cluster_id]
         })
 
+    analytics_cache.set(cache_key, points)
     return points
-

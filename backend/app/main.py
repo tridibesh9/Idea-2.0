@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings
-from app.routes import complaints, analytics, escalations, audit
+from app.routes import complaints, analytics, escalations, audit, auth
 from app.routes import reports, websocket as ws_route, simulator, knowledge, webhooks
 from app.services.sla_checker import check_sla_breaches
 from app.services.email_listener import start_email_listener, stop_email_listener
@@ -33,6 +33,27 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(check_sla_breaches, "interval", minutes=5, id="sla_checker")
     scheduler.start()
     logger.info("SLA background scheduler started")
+
+    # Seed Senior Official if not exists
+    try:
+        from app.database import async_session
+        from sqlalchemy import select
+        from app.models.agent import Agent
+        async with async_session() as db:
+            result = await db.execute(select(Agent).where(Agent.email == "senior@complaintiq.com"))
+            senior = result.scalar_one_or_none()
+            if not senior:
+                senior = Agent(
+                    name="Senior Official",
+                    email="senior@complaintiq.com",
+                    role="senior_official",
+                    department="Management"
+                )
+                db.add(senior)
+                await db.commit()
+                logger.info("Senior Official agent seeded successfully")
+    except Exception as e:
+        logger.error(f"Failed to seed Senior Official: {e}")
 
     # Start email listener if enabled
     global _email_listener_task
@@ -111,6 +132,7 @@ app.add_middleware(
 )
 
 # Register routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(complaints.router, prefix="/api/complaints", tags=["Complaints"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(escalations.router, prefix="/api/escalations", tags=["Escalations"])

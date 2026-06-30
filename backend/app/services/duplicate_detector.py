@@ -1,6 +1,6 @@
 import uuid
 from google import genai
-from sqlalchemy import select, text
+from sqlalchemy import or_, and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -39,16 +39,21 @@ async def find_similar(
     db: AsyncSession,
     threshold: float = 0.70,
     limit: int = 5,
+    source_embedding: list[float] | None = None,
+    source_entities: list[dict] | None = None,
 ) -> list[SimilarComplaint]:
     """Find similar complaints using cosine similarity on embeddings."""
 
-    # Get the embedding for this complaint
-    result = await db.execute(
-        select(ComplaintEmbedding).where(ComplaintEmbedding.complaint_id == complaint_id)
-    )
-    source_embedding = result.scalar_one_or_none()
-    if not source_embedding or source_embedding.embedding is None:
-        return []
+    embedding_val = source_embedding
+    if embedding_val is None:
+        # Get the embedding for this complaint
+        result = await db.execute(
+            select(ComplaintEmbedding).where(ComplaintEmbedding.complaint_id == complaint_id)
+        )
+        source_embedding_obj = result.scalar_one_or_none()
+        if not source_embedding_obj or source_embedding_obj.embedding is None:
+            return []
+        embedding_val = source_embedding_obj.embedding
 
     # pgvector cosine distance: <=> operator (lower = more similar)
     # cosine similarity = 1 - cosine distance
@@ -65,7 +70,7 @@ async def find_similar(
     result = await db.execute(
         query,
         {
-            "source_embedding": str(source_embedding.embedding.tolist()) if hasattr(source_embedding.embedding, "tolist") else str(source_embedding.embedding),
+            "source_embedding": str(embedding_val.tolist()) if hasattr(embedding_val, "tolist") else str(embedding_val),
             "complaint_id": str(complaint_id),
             "threshold": threshold,
             "limit": limit,
@@ -73,24 +78,45 @@ async def find_similar(
     )
     rows = result.all()
 
-    # Fetch entities for the source complaint
-    entities_result = await db.execute(
-        select(Entity).where(Entity.complaint_id == complaint_id, Entity.is_sensitive == False)
-    )
-    source_entities = entities_result.scalars().all()
+    # Fetch entities for the source complaint if not provided
+    source_entities_list = source_entities
+    if source_entities_list is None:
+        entities_result = await db.execute(
+            select(Entity).where(Entity.complaint_id == complaint_id, Entity.is_sensitive == False)
+        )
+        source_entities_objs = entities_result.scalars().all()
+        source_entities_list = [{"entity_type": e.entity_type, "entity_value": e.entity_value} for e in source_entities_objs]
     
     entity_matches = set()
-    if source_entities:
+    if source_entities_list:
         # Build query to find complaints sharing the exact same entity type and value
-        from sqlalchemy import or_, and_
         or_conditions = []
-        for ent in source_entities:
-            or_conditions.append(and_(Entity.entity_type == ent.entity_type, Entity.entity_value == ent.entity_value))
+        for ent in source_entities_list:
+            ent_type = ent.get("entity_type")
+            ent_val = ent.get("entity_value")
+            if ent_type and ent_val:
+                or_conditions.append(and_(Entity.entity_type == ent_type, Entity.entity_value == ent_val))
         
         if or_conditions:
             match_query = select(Entity.complaint_id).where(Entity.complaint_id != complaint_id, or_(*or_conditions))
             match_res = await db.execute(match_query)
             entity_matches = set(match_res.scalars().all())
+
+    # Collect all candidate complaint IDs
+    candidate_ids = set()
+    for row in rows:
+        candidate_ids.add(uuid.UUID(str(row.complaint_id)))
+    for cid in entity_matches:
+        candidate_ids.add(cid)
+
+    # Bulk query all complaints
+    complaints_map = {}
+    if candidate_ids:
+        c_result = await db.execute(
+            select(Complaint).where(Complaint.id.in_(list(candidate_ids)))
+        )
+        for c in c_result.scalars().all():
+            complaints_map[c.id] = c
 
     # Compile the final similar list, boosting scores for entity matches
     similar = []
@@ -101,8 +127,7 @@ async def find_similar(
     for row in rows:
         cid = uuid.UUID(str(row.complaint_id))
         processed_cids.add(cid)
-        complaint_result = await db.execute(select(Complaint).where(Complaint.id == cid))
-        c = complaint_result.scalar_one_or_none()
+        c = complaints_map.get(cid)
         if c:
             # Boost score to 1.0 if it's an exact entity match, otherwise use vector similarity
             final_score = 1.0 if cid in entity_matches else float(row.similarity_score)
@@ -122,8 +147,7 @@ async def find_similar(
     # Add any entity matches that didn't meet the vector threshold
     for cid in entity_matches:
         if cid not in processed_cids:
-            complaint_result = await db.execute(select(Complaint).where(Complaint.id == cid))
-            c = complaint_result.scalar_one_or_none()
+            c = complaints_map.get(cid)
             if c:
                 similar.append(
                     SimilarComplaint(

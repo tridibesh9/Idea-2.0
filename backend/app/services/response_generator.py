@@ -72,13 +72,16 @@ async def generate_response(
         return _fallback_response(complaint, tone)
 
     try:
+        from app.services.pii_redactor import pii_redactor
+        safe_body, _ = pii_redactor.redact(complaint.body)
+
         if instruction and current_draft:
             # Refinement prompt
             contents = REFINEMENT_PROMPT.format(
                 subject=complaint.subject or "N/A",
                 category=complaint.category or "general",
                 sentiment=complaint.sentiment_label or "unknown",
-                body=complaint.body,
+                body=safe_body,
                 current_draft=current_draft,
                 instruction=instruction,
                 tone=tone,
@@ -92,7 +95,7 @@ async def generate_response(
                     from app.services.duplicate_detector import generate_embedding
                     from sqlalchemy import text
                     
-                    embedding_vector = await generate_embedding(complaint.body)
+                    embedding_vector = await generate_embedding(safe_body)
                     if embedding_vector:
                         sql = text("""
                             SELECT title, content
@@ -115,7 +118,7 @@ async def generate_response(
                 category=complaint.category or "general",
                 severity=complaint.severity,
                 sentiment=complaint.sentiment_label or "unknown",
-                body=complaint.body,
+                body=safe_body,
                 tone=tone,
             ) + knowledge_context
 

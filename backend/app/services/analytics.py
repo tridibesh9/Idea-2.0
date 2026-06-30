@@ -155,4 +155,4 @@ Write in a professional tone suitable for a management report."""
         return response.text
     except Exception as e:
         logger.error(f"Failed to generate weekly summary: {e}")
-        return "Weekly summary generation failed due to an AI API error (Rate limit or unavailable)."
+        return fallback_summary

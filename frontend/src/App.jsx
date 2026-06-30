@@ -1,8 +1,9 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './components/Toast';
 import Layout from './components/Layout';
+import Login from './pages/Login';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ComplaintsList = lazy(() => import('./pages/ComplaintsList'));
@@ -25,11 +26,28 @@ const PageLoader = () => (
 );
 
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('agent_token'));
+
+  const handleLogout = () => {
+    localStorage.clear();
+    setIsLoggedIn(false);
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <Login onLoginSuccess={() => setIsLoggedIn(true)} />
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <ToastProvider>
         <Router>
-          <Layout>
+          <Layout onLogout={handleLogout}>
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />

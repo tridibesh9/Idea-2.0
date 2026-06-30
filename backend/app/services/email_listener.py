@@ -25,6 +25,7 @@ from app.services.duplicate_detector import generate_embedding
 from app.services.pii_redactor import pii_redactor
 from app.services.entity_extractor import extract_entities
 from app.database import async_session
+from app.services.complaint_pipeline import process_complaint_pipeline
 
 logger = logging.getLogger("email_listener")
 settings = get_settings()
@@ -83,16 +84,19 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
                     )
                     complaint = result.scalar_one_or_none()
 
-            business_entities_to_save = []
-            sensitive_entities_to_save = {}
+            pipeline_result = None
 
             # If not found by ticket ID or Reply-To, try entity-based threading
             if not complaint and customer:
-                safe_text, sensitive_entities_to_save = pii_redactor.redact(parsed.body_text)
-                business_entities_to_save = await extract_entities(safe_text)
+                # Run unified functional pipeline
+                pipeline_result = await process_complaint_pipeline(
+                    text=parsed.body_text,
+                    channel="email",
+                    db=db,
+                )
 
-                if business_entities_to_save:
-                    for be in business_entities_to_save:
+                if pipeline_result.classification.entities:
+                    for be in pipeline_result.classification.entities:
                         ent_type = be.get("entity_type")
                         ent_val = be.get("entity_value")
                         if ent_type and ent_val:
@@ -115,7 +119,15 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
 
             # If not a reply or matched by entity, create new complaint
             if not complaint:
+                if not pipeline_result:
+                    pipeline_result = await process_complaint_pipeline(
+                        text=parsed.body_text,
+                        channel="email",
+                        db=db,
+                    )
+
                 complaint = Complaint(
+                    id=pipeline_result.complaint_id,
                     channel="email",
                     external_id=parsed.message_id,
                     subject=parsed.subject,
@@ -127,27 +139,25 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
                 await db.flush()
 
                 # Save extracted entities
-                for token_type, tokens in sensitive_entities_to_save.items():
+                for token_type, tokens in pipeline_result.sensitive_entities.items():
                     for val in tokens:
                         db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
-                for be in business_entities_to_save:
+                for be in pipeline_result.classification.entities:
                     db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
 
-                # AI Classification
-                classification = await classify_complaint(parsed.body_text, "email")
-                complaint.category = classification.category
-                complaint.product = classification.product
-                complaint.severity = classification.severity
-                complaint.sentiment_score = classification.sentiment_score
-                complaint.sentiment_label = classification.sentiment_label
-                complaint.key_issues = json.dumps(classification.key_issues)
-                complaint.ai_confidence_score = classification.confidence
+                complaint.category = pipeline_result.classification.category
+                complaint.product = pipeline_result.classification.product
+                complaint.severity = pipeline_result.classification.severity
+                complaint.sentiment_score = pipeline_result.classification.sentiment_score
+                complaint.sentiment_label = pipeline_result.classification.sentiment_label
+                complaint.key_issues = json.dumps(pipeline_result.classification.key_issues)
+                complaint.ai_confidence_score = pipeline_result.classification.confidence
                 complaint.regulatory_flags = json.dumps(
-                    classification.regulatory_flags
+                    pipeline_result.classification.regulatory_flags
                 )
 
                 # Set SLA deadline
-                hours = SLA_HOURS.get(classification.severity, 24)
+                hours = SLA_HOURS.get(pipeline_result.classification.severity, 24)
                 complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(
                     hours=hours
                 )
@@ -156,18 +166,24 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
                 from app.services.smart_router import route_complaint
                 await route_complaint(complaint, db)
 
-                # Generate embedding
-                try:
-                    embedding_vector = await generate_embedding(parsed.body_text)
-                    if embedding_vector:
-                        from app.models.complaint import ComplaintEmbedding
+                # Store embedding if generated
+                if pipeline_result.embedding:
+                    from app.models.complaint import ComplaintEmbedding
 
-                        emb = ComplaintEmbedding(
-                            complaint_id=complaint.id, embedding=embedding_vector
-                        )
-                        db.add(emb)
-                except Exception as e:
-                    logger.warning(f"Failed to generate embedding: {e}")
+                    emb = ComplaintEmbedding(
+                        complaint_id=complaint.id, embedding=pipeline_result.embedding
+                    )
+                    db.add(emb)
+                    await db.flush()
+
+                    # Grouping Engine: Assign Incident Group based on similarity
+                    from app.services.grouping_engine import assign_incident_group
+                    complaint.incident_group_id = await assign_incident_group(
+                        complaint.id,
+                        db,
+                        source_embedding=pipeline_result.embedding,
+                        similar=pipeline_result.similar_complaints
+                    )
 
                 # Create audit log
                 audit = AuditLog(
@@ -178,7 +194,7 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
                         {
                             "from": parsed.from_email,
                             "message_id": parsed.message_id,
-                            "classification": classification.model_dump(),
+                            "classification": pipeline_result.classification.model_dump(),
                         }
                     ),
                 )
@@ -215,6 +231,13 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
                 db.add(audit)
 
             await db.commit()
+
+            # Invalidate analytics cache
+            try:
+                from app.services.analytics_cache import analytics_cache
+                analytics_cache.invalidate_all()
+            except Exception:
+                pass
 
             # Broadcast to WebSocket if callback is set
             if broadcast_callback:

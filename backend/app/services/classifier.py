@@ -21,6 +21,7 @@ Analyze the following customer complaint (and any attached image, if provided) a
 - regulatory_flags: array of flags if any apply: ["legal_mentioned", "regulator_mentioned", "ombudsman_mentioned", "lawsuit_mentioned", "discrimination_mentioned"]. Empty array if none.
 - next_best_action: A concise sentence suggesting the best action for the agent to take (e.g., "Issue full refund immediately", "Escalate to technical support team").
 - subject: A concise, professional 3-6 word summary of the complaint (e.g., "Incorrect Late Fee Applied", "Mobile App Login Crash").
+- entities: A JSON array of objects representing non-sensitive business entities extracted from the text (e.g., CUSTOMER_ID, ORDER_NUMBER, PRODUCT_CODE, LOCATION, TRACKING_NUMBER). If none are found, return an empty array []. Each object should have keys "entity_type" and "entity_value" (e.g., [[{{"entity_type": "ORDER_NUMBER", "entity_value": "ORD-12345"}}]]).
 
 Channel: {channel}
 Complaint: {text}
@@ -28,10 +29,16 @@ Complaint: {text}
 Return ONLY the JSON object, no other text."""
 
 
-async def classify_complaint(text: str, channel: str, image_base64: str | None = None) -> ComplaintClassification:
+async def classify_complaint(
+    text: str,
+    channel: str,
+    image_base64: str | None = None,
+    safe_text: str | None = None,
+) -> ComplaintClassification:
     """Classify a complaint using the LLM, with PII redaction and optional multimodal image support."""
     # 1. PII Redaction Pipeline (Enterprise compliance)
-    safe_text, _ = pii_redactor.redact(text)
+    if safe_text is None:
+        safe_text, _ = pii_redactor.redact(text)
 
     if not client:
         return _fallback_classify(safe_text)
@@ -134,5 +141,6 @@ def _fallback_classify(text: str) -> ComplaintClassification:
         confidence=0.5,
         regulatory_flags=flags,
         next_best_action="Investigate issue and respond to customer.",
-        subject=fallback_subject
+        subject=fallback_subject,
+        entities=[]
     )

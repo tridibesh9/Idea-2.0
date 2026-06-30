@@ -29,10 +29,14 @@ const navItems = [
 
 const channels = ['email', 'twitter', 'chat', 'phone'];
 
-export default function Layout({ children }) {
+export default function Layout({ children, onLogout }) {
   const { dark, toggle } = useTheme();
   const addToast = useToast();
   const [simulating, setSimulating] = useState(false);
+
+  const agentName = localStorage.getItem('agent_name');
+  const agentRole = localStorage.getItem('agent_role');
+  const agentDept = localStorage.getItem('agent_dept');
 
   async function handleSimulate(channel) {
     setSimulating(true);
@@ -159,6 +163,25 @@ export default function Layout({ children }) {
             </div>
           </div>
         </nav>
+
+        {/* Agent Profile Card */}
+        <div className="p-4 border-t border-slate-200/50 dark:border-white/5 bg-slate-50/50 dark:bg-dark-900/30">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+              {agentName ? agentName.charAt(0) : 'A'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-800 dark:text-white truncate">{agentName || 'Agent'}</p>
+              <p className="text-[10px] text-slate-400 truncate capitalize">{agentRole ? `${agentRole.replace('_', ' ')} • ${agentDept}` : 'Role'}</p>
+            </div>
+          </div>
+          <button
+            onClick={onLogout}
+            className="w-full mt-3 py-1.5 px-3 rounded-lg text-xs font-medium text-red-600 hover:text-white bg-red-50 hover:bg-red-600 dark:bg-red-950/20 dark:hover:bg-red-900/30 transition-all flex items-center justify-center gap-1.5"
+          >
+            <span>Log out</span>
+          </button>
+        </div>
 
         {/* Footer */}
         <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex items-center justify-between">

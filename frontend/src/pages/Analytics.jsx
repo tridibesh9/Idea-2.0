@@ -13,35 +13,65 @@ const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899'
 export default function Analytics() {
   const navigate = useNavigate();
   const [trends, setTrends] = useState([]);
+  const [clusters, setClusters] = useState([]);
   const [rootCause, setRootCause] = useState(null);
   const [weeklySummary, setWeeklySummary] = useState('');
   const [groupBy, setGroupBy] = useState('category');
-  const [clusters, setClusters] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  const [loading, setLoading] = useState(true); // For quick db-driven trends/clusters
+  const [loadingRCA, setLoadingRCA] = useState(true); // Background loader for RCA
+  const [loadingSummary, setLoadingSummary] = useState(true); // Background loader for Summary
   const [generatingRCA, setGeneratingRCA] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => { loadData(); }, [groupBy]);
+  useEffect(() => {
+    loadFastData();
+  }, [groupBy]);
 
-  async function loadData() {
+  useEffect(() => {
+    loadRcaData();
+    loadSummaryData();
+  }, []);
+
+  async function loadFastData() {
     setLoading(true);
     setError(null);
     try {
-      const [tRes, rRes, wRes, cRes] = await Promise.all([
+      const [tRes, cRes] = await Promise.all([
         getTrends({ days: 30, group_by: groupBy }),
-        getRootCause({ days: 30 }),
-        getWeeklySummary(),
         getComplaintClusters(),
       ]);
       setTrends(tRes.data);
-      setRootCause(rRes.data);
-      setWeeklySummary(wRes.data.summary);
       setClusters(cRes.data);
     } catch (err) {
       setError('Failed to load analytics data');
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadRcaData() {
+    setLoadingRCA(true);
+    try {
+      const rRes = await getRootCause({ days: 30 });
+      setRootCause(rRes.data);
+    } catch (err) {
+      console.error('Failed to load RCA:', err);
+    } finally {
+      setLoadingRCA(false);
+    }
+  }
+
+  async function loadSummaryData() {
+    setLoadingSummary(true);
+    try {
+      const wRes = await getWeeklySummary();
+      setWeeklySummary(wRes.data.summary);
+    } catch (err) {
+      console.error('Failed to load summary:', err);
+    } finally {
+      setLoadingSummary(false);
     }
   }
 
@@ -71,7 +101,7 @@ export default function Analytics() {
       <div className="flex flex-col items-center justify-center h-64 text-center">
         <AlertCircle size={40} className="text-red-400 mb-3" />
         <p className="text-gray-600 dark:text-gray-400">{error}</p>
-        <button onClick={loadData} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Retry</button>
+        <button onClick={loadFastData} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Retry</button>
       </div>
     );
   }
@@ -88,17 +118,17 @@ export default function Analytics() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">Analytics</h2>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6 font-heading">Analytics</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Trend Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
+        <div className="bg-white dark:bg-dark-900 rounded-3xl shadow-sm border dark:border-white/5 p-6 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Complaint Trends (Last 30 Days)</h3>
+            <h3 className="font-bold text-gray-800 dark:text-gray-200 font-heading text-base">Complaint Trends (Last 30 Days)</h3>
             <div className="flex gap-2">
               {['category', 'channel', 'severity'].map((g) => (
                 <button key={g} onClick={() => setGroupBy(g)}
-                  className={`px-3 py-1 rounded-full text-xs border dark:border-gray-600 ${groupBy === g ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-400'}`}>
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${groupBy === g ? 'bg-indigo-600 text-white border-transparent' : 'text-gray-600 border-slate-200 dark:border-white/5 dark:text-gray-400 hover:bg-slate-50 dark:hover:bg-dark-800'}`}>
                   {g}
                 </button>
               ))}
@@ -106,56 +136,75 @@ export default function Analytics() {
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-              <YAxis />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis axisLine={false} tickLine={false} />
               <Tooltip />
               <Legend />
               {allKeys.map((key, i) => (
-                <Bar key={key} dataKey={key} stackId="a" fill={COLORS[i % COLORS.length]} />
+                <Bar key={key} dataKey={key} stackId="a" fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} />
               ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
 
         {/* Root Cause */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 relative">
+        <div className="bg-white dark:bg-dark-900 rounded-3xl shadow-sm border dark:border-white/5 p-6 relative">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">AI Deep Root Cause Analysis</h3>
+            <h3 className="font-bold text-gray-800 dark:text-gray-200 font-heading text-base">AI Deep Root Cause Analysis</h3>
             <button 
               onClick={handleGenerateRCA} 
-              disabled={generatingRCA}
-              className="px-3 py-1 bg-purple-600 text-white rounded-lg text-xs hover:bg-purple-700 disabled:opacity-50"
+              disabled={generatingRCA || loadingRCA}
+              className="px-3 py-1 bg-purple-600 hover:bg-purple-750 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-500/10 disabled:opacity-50"
             >
               {generatingRCA ? 'Analyzing...' : 'Generate Deep RCA'}
             </button>
           </div>
-          {rootCause ? (
+          
+          {loadingRCA ? (
+            <div className="space-y-4 animate-pulse mt-4">
+              <div className="h-4 bg-slate-100 dark:bg-dark-800 rounded-lg w-2/3"></div>
+              <div className="h-3 bg-slate-50 dark:bg-dark-850 rounded-lg w-full"></div>
+              <div className="h-3 bg-slate-50 dark:bg-dark-850 rounded-lg w-5/6"></div>
+              <div className="h-20 bg-slate-100 dark:bg-dark-800 rounded-2xl w-full"></div>
+            </div>
+          ) : rootCause ? (
             <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">{rootCause.summary}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4 font-medium leading-relaxed">{rootCause.summary}</p>
               <div className="mb-3">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top Categories</p>
+                <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Top Categories</p>
                 {rootCause.top_categories?.map((c, i) => (
-                  <div key={i} className="flex justify-between text-sm py-1 dark:text-gray-300">
-                    <span>{c.name || c.category}</span>
-                    <span className="font-medium">{c.count}</span>
+                  <div key={i} className="flex justify-between text-sm py-1.5 dark:text-gray-300 border-b border-slate-50 dark:border-white/5 last:border-b-0">
+                    <span className="font-semibold">{c.name || c.category}</span>
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{c.count}</span>
                   </div>
                 ))}
               </div>
-              <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Recommendations</p>
-                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                  {rootCause.recommendations?.map((r, i) => <li key={i}>• {r}</li>)}
+              <div className="mt-4">
+                <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Recommendations</p>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                  {rootCause.recommendations?.map((r, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-indigo-500 font-bold">•</span>
+                      <span>{r}</span>
+                    </li>
+                  ))}
                 </ul>
               </div>
             </div>
-          ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
+          ) : (
+            <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>
+          )}
         </div>
 
         {/* Category Distribution Pie */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">Category Distribution</h3>
-          {rootCause?.top_categories?.length > 0 ? (
+        <div className="bg-white dark:bg-dark-900 rounded-3xl shadow-sm border dark:border-white/5 p-6">
+          <h3 className="font-bold text-gray-800 dark:text-gray-200 font-heading text-base mb-3">Category Distribution</h3>
+          {loadingRCA ? (
+            <div className="flex items-center justify-center h-[250px] animate-pulse">
+              <div className="w-36 h-36 rounded-full border-8 border-slate-100 dark:border-dark-800 border-t-indigo-500 animate-spin"></div>
+            </div>
+          ) : rootCause?.top_categories?.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie 
@@ -165,7 +214,7 @@ export default function Analytics() {
                   cx="50%" 
                   cy="50%" 
                   innerRadius={50} 
-                  outerRadius={90} 
+                  outerRadius={85} 
                   label={({ displayLabel, count }) => `${displayLabel} (${count})`}
                 >
                   {rootCause.top_categories.map((_, i) => (
@@ -175,13 +224,15 @@ export default function Analytics() {
                 <Tooltip formatter={(value, name, props) => [value, props.payload.displayLabel]} />
               </PieChart>
             </ResponsiveContainer>
-          ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
+          ) : (
+            <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>
+          )}
         </div>
 
         {/* Semantic Clustering Scatter Plot */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Complaint Semantic Clusters (PCA Map)</h3>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+        <div className="bg-white dark:bg-dark-900 rounded-3xl shadow-sm border dark:border-white/5 p-6 lg:col-span-2">
+          <h3 className="font-bold text-gray-800 dark:text-gray-200 font-heading text-base mb-2">Complaint Semantic Clusters (PCA Map)</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 leading-relaxed">
             High-dimensional embeddings of complaints projected into 2D space using Principal Component Analysis (PCA) and grouped using K-Means.
           </p>
           {clusters.length === 0 ? (
@@ -192,7 +243,7 @@ export default function Analytics() {
             <div className="h-[350px] relative">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis type="number" dataKey="x" name="PCA Component 1" hide />
                   <YAxis type="number" dataKey="y" name="PCA Component 2" hide />
                   <Tooltip
@@ -244,9 +295,19 @@ export default function Analytics() {
         </div>
 
         {/* Weekly Summary */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">AI Weekly Summary</h3>
-          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{weeklySummary || 'No summary available'}</p>
+        <div className="bg-white dark:bg-dark-900 rounded-3xl shadow-sm border dark:border-white/5 p-6 lg:col-span-2">
+          <h3 className="font-bold text-gray-800 dark:text-gray-200 font-heading text-base mb-3">AI Weekly Summary</h3>
+          
+          {loadingSummary ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-4 bg-slate-100 dark:bg-dark-800 rounded-lg w-full"></div>
+              <div className="h-4 bg-slate-100 dark:bg-dark-800 rounded-lg w-full"></div>
+              <div className="h-4 bg-slate-50 dark:bg-dark-850 rounded-lg w-5/6"></div>
+              <div className="h-4 bg-slate-50 dark:bg-dark-850 rounded-lg w-4/5"></div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line leading-relaxed font-medium">{weeklySummary || 'No summary available'}</p>
+          )}
         </div>
       </div>
     </div>

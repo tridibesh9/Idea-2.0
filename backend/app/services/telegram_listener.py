@@ -18,6 +18,7 @@ from app.services.pii_redactor import pii_redactor
 from app.services.entity_extractor import extract_entities
 from app.services.telegram_sender import send_telegram_reply
 from app.database import async_session
+from app.services.complaint_pipeline import process_complaint_pipeline
 
 logger = logging.getLogger("telegram_listener")
 settings = get_settings()
@@ -140,14 +141,20 @@ class TelegramListener:
                         pass
 
                 if not complaint:
-                    # New Complaint Workflow (or default if IDLE and typed a message)
-                    safe_text, sensitive_entities_to_save = pii_redactor.redact(text)
-                    business_entities_to_save = await extract_entities(safe_text)
+                    # Run unified functional pipeline
+                    complaint_id = uuid.uuid4()
+                    pipeline_result = await process_complaint_pipeline(
+                        text=text,
+                        channel="telegram",
+                        db=db,
+                        complaint_id=complaint_id,
+                    )
 
                     complaint = Complaint(
+                        id=pipeline_result.complaint_id,
                         channel="telegram",
                         external_id=chat_id,
-                        subject=f"Telegram message from {first_name}",
+                        subject=pipeline_result.classification.subject or f"Telegram message from {first_name}",
                         body=text,
                         customer_id=customer.id,
                         status="new"
@@ -155,46 +162,50 @@ class TelegramListener:
                     db.add(complaint)
                     await db.flush()
 
-                    for token_type, tokens in sensitive_entities_to_save.items():
+                    for token_type, tokens in pipeline_result.sensitive_entities.items():
                         for val in tokens:
                             db.add(Entity(complaint_id=complaint.id, entity_type=token_type, entity_value=val, is_sensitive=True))
-                    for be in business_entities_to_save:
+                    for be in pipeline_result.classification.entities:
                         db.add(Entity(complaint_id=complaint.id, entity_type=be.get("entity_type"), entity_value=be.get("entity_value"), is_sensitive=False))
 
-                    # AI Classification
-                    classification = await classify_complaint(text, "telegram")
-                    complaint.category = classification.category
-                    complaint.product = classification.product
-                    complaint.severity = classification.severity
-                    complaint.sentiment_score = classification.sentiment_score
-                    complaint.sentiment_label = classification.sentiment_label
-                    complaint.key_issues = json.dumps(classification.key_issues)
-                    complaint.ai_confidence_score = classification.confidence
-                    complaint.regulatory_flags = json.dumps(classification.regulatory_flags)
-                    if classification.subject:
-                        complaint.subject = classification.subject
+                    complaint.category = pipeline_result.classification.category
+                    complaint.product = pipeline_result.classification.product
+                    complaint.severity = pipeline_result.classification.severity
+                    complaint.sentiment_score = pipeline_result.classification.sentiment_score
+                    complaint.sentiment_label = pipeline_result.classification.sentiment_label
+                    complaint.key_issues = json.dumps(pipeline_result.classification.key_issues)
+                    complaint.ai_confidence_score = pipeline_result.classification.confidence
+                    complaint.regulatory_flags = json.dumps(pipeline_result.classification.regulatory_flags)
+                    if pipeline_result.classification.subject:
+                        complaint.subject = pipeline_result.classification.subject
 
-                    hours = SLA_HOURS.get(classification.severity, 24)
+                    hours = SLA_HOURS.get(pipeline_result.classification.severity, 24)
                     complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=hours)
 
                     # Smart Routing Auto Assignment
                     from app.services.smart_router import route_complaint
                     await route_complaint(complaint, db)
 
-                    # Generate embedding
-                    try:
-                        embedding_vector = await generate_embedding(text)
-                        if embedding_vector:
-                            emb = ComplaintEmbedding(complaint_id=complaint.id, embedding=embedding_vector)
-                            db.add(emb)
-                    except Exception as e:
-                        logger.warning(f"Failed to generate embedding: {e}")
+                    # Store embedding if generated
+                    if pipeline_result.embedding:
+                        emb = ComplaintEmbedding(complaint_id=complaint.id, embedding=pipeline_result.embedding)
+                        db.add(emb)
+                        await db.flush()
+
+                        # Grouping Engine: Assign Incident Group based on similarity
+                        from app.services.grouping_engine import assign_incident_group
+                        complaint.incident_group_id = await assign_incident_group(
+                            complaint.id,
+                            db,
+                            source_embedding=pipeline_result.embedding,
+                            similar=pipeline_result.similar_complaints
+                        )
 
                     audit = AuditLog(
                         complaint_id=complaint.id,
                         action="telegram_received",
                         performed_by="system",
-                        details=json.dumps({"chat_id": chat_id, "classification": classification.model_dump()})
+                        details=json.dumps({"chat_id": chat_id, "classification": pipeline_result.classification.model_dump()})
                     )
                     db.add(audit)
                     
@@ -227,6 +238,13 @@ class TelegramListener:
                 db.add(audit)
 
                 await db.commit()
+
+                # Invalidate analytics cache
+                try:
+                    from app.services.analytics_cache import analytics_cache
+                    analytics_cache.invalidate_all()
+                except Exception:
+                    pass
 
                 if self._broadcast_callback:
                     try:
