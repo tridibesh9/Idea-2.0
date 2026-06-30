@@ -7,7 +7,7 @@ import logging
 from app.config import get_settings
 from app.models.complaint import Complaint
 from app.schemas.schemas import RootCauseInsight
-
+#hii
 settings = get_settings()
 client = (
     genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
