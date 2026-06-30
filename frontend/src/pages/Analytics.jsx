@@ -134,14 +134,62 @@ export default function Analytics() {
 
   const selectedClusterComplaints = selectedClusterLabel ? clusterGroups[selectedClusterLabel] || [] : [];
 
-  // Compute Mock Entities for Cross-Channel Journey
+  // Compute Entities for Cross-Channel Journey
   const entities = useMemo(() => {
-    if (recentComplaints.length < 3) return {};
-    const grouped = {
-      'CUST-8492 (john.doe@example.com)': recentComplaints.slice(0, 4),
-      'CUST-1029 (sarah.w@example.com)': recentComplaints.slice(4, 7),
-    };
-    return grouped;
+    if (!recentComplaints || recentComplaints.length === 0) return {};
+    
+    const grouped = {};
+    
+    // Group complaints by customer_id
+    recentComplaints.forEach(comp => {
+      // Use customer_id if available, otherwise fallback to complaint ID so it stands alone
+      const key = comp.customer_id || `unlinked-${comp.id}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          complaints: [],
+          displayLabel: 'Unknown Customer',
+          subLabel: ''
+        };
+      }
+      grouped[key].complaints.push(comp);
+      
+      // Try to extract a nice display name from entities if we haven't already got a good one
+      if (grouped[key].displayLabel === 'Unknown Customer' && comp.entities && comp.entities.length > 0) {
+         const emailEntity = comp.entities.find(e => e.entity_type && e.entity_type.toUpperCase().includes('EMAIL'));
+         const nameEntity = comp.entities.find(e => e.entity_type && (e.entity_type.toUpperCase().includes('PERSON') || e.entity_type.toUpperCase().includes('NAME')));
+         const idEntity = comp.entities.find(e => e.entity_type && (e.entity_type.toUpperCase().includes('ID') || e.entity_type.toUpperCase().includes('ACCOUNT')));
+         
+         if (nameEntity) {
+             grouped[key].displayLabel = nameEntity.entity_value;
+             if (emailEntity) grouped[key].subLabel = emailEntity.entity_value;
+         } else if (emailEntity) {
+             grouped[key].displayLabel = emailEntity.entity_value;
+         } else if (idEntity) {
+             grouped[key].displayLabel = `ID: ${idEntity.entity_value}`;
+         } else if (comp.entities[0]) {
+             grouped[key].displayLabel = comp.entities[0].entity_value;
+             grouped[key].subLabel = comp.entities[0].entity_type;
+         }
+      }
+    });
+
+    const finalGroups = {};
+    Object.entries(grouped).forEach(([key, data]) => {
+       let label = data.displayLabel;
+       if (data.subLabel) {
+           label += ` (${data.subLabel})`;
+       }
+       if (label === 'Unknown Customer') {
+           label = `Customer ${key.substring(0, 8)}`;
+       }
+       
+       // Only show linked journeys or ones that have actual entities found
+       if (data.complaints.length > 1 || data.displayLabel !== 'Unknown Customer') {
+          finalGroups[label] = data.complaints.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+       }
+    });
+    
+    return finalGroups;
   }, [recentComplaints]);
 
   // Set initial selected entity once loaded
@@ -337,8 +385,8 @@ export default function Analytics() {
                     : "bg-slate-50/50 dark:bg-dark-800/50 border-slate-200 dark:border-white/5 hover:border-blue-300 text-slate-700 dark:text-slate-300"
                 )}
               >
-                <div className="font-bold mb-1">{entityKey.split(' ')[0]}</div>
-                <div className="text-xs opacity-70 truncate">{entityKey.split(' ')[1]}</div>
+                <div className="font-bold mb-1 truncate">{entityKey.split(' (')[0]}</div>
+                <div className="text-xs opacity-70 truncate">{entityKey.includes(' (') ? '(' + entityKey.split(' (')[1] : ''}</div>
                 <div className="mt-3 flex gap-1">
                   {entities[entityKey].map((c, i) => (
                     <span key={i} className="w-2 h-2 rounded-full bg-blue-400"></span>
