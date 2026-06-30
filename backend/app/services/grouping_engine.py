@@ -6,8 +6,9 @@ from app.services.duplicate_detector import find_similar
 
 async def assign_incident_group(complaint_id: uuid.UUID, db: AsyncSession) -> str:
     """
-    Assigns an incident group ID to a complaint.
-    It checks for similar complaints. If a highly similar one exists, it joins its group.
+    Assigns an incident group ID to a complaint and links the customer if highly similar.
+    It checks for similar complaints. If a highly similar one exists (or exact entity match), 
+    it joins its group and links the customer.
     Otherwise, it creates a new group.
     """
     # Use existing duplicate detector to find semantically similar complaints
@@ -16,10 +17,19 @@ async def assign_incident_group(complaint_id: uuid.UUID, db: AsyncSession) -> st
     if similar and similar[0].similarity_score > 0.85:
         # High similarity, let's see if the similar complaint has an incident group
         similar_complaint_id = similar[0].complaint_id
-        result = await db.execute(select(Complaint).where(Complaint.id == similar_complaint_id))
-        parent = result.scalar_one_or_none()
         
-        if parent:
+        result_current = await db.execute(select(Complaint).where(Complaint.id == complaint_id))
+        current_complaint = result_current.scalar_one_or_none()
+        
+        result_parent = await db.execute(select(Complaint).where(Complaint.id == similar_complaint_id))
+        parent = result_parent.scalar_one_or_none()
+        
+        if parent and current_complaint:
+            # 1. Link customer if parent has one and current doesn't
+            if parent.customer_id and not current_complaint.customer_id:
+                current_complaint.customer_id = parent.customer_id
+
+            # 2. Assign incident group
             if parent.incident_group_id:
                 return parent.incident_group_id
             else:

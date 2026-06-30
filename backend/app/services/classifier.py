@@ -27,7 +27,6 @@ Complaint: {text}
 
 Return ONLY the JSON object, no other text."""
 
-
 async def classify_complaint(text: str, channel: str, image_base64: str | None = None) -> ComplaintClassification:
     """Classify a complaint using the LLM, with PII redaction and optional multimodal image support."""
     # 1. PII Redaction Pipeline (Enterprise compliance)

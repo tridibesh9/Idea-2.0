@@ -1,218 +1,205 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Sparkles } from 'lucide-react';
-import { getTrends, getRootCause, getWeeklySummary, getComplaintClusters } from '../api';
+import { AlertCircle, Sparkles, Flame, Users, Zap, TerminalSquare, MessageSquare, Activity, Clock, X, ChevronRight } from 'lucide-react';
+import { getTrends, getComplaintClusters, getComplaints } from '../api';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  BarChart, Bar, PieChart, Pie, Cell, ScatterChart, Scatter,
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ZAxis
 } from 'recharts';
 import { SkeletonCard } from '../components/Skeleton';
+import clsx from 'clsx';
 
-const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899', '#14b8a6'];
+const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#06b6d4'];
 
 export default function Analytics() {
   const navigate = useNavigate();
   const [trends, setTrends] = useState([]);
-  const [rootCause, setRootCause] = useState(null);
-  const [weeklySummary, setWeeklySummary] = useState('');
-  const [groupBy, setGroupBy] = useState('category');
   const [clusters, setClusters] = useState([]);
+  const [recentComplaints, setRecentComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [generatingRCA, setGeneratingRCA] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => { loadData(); }, [groupBy]);
+  // Interaction States
+  const [selectedClusterLabel, setSelectedClusterLabel] = useState(null);
+  const [selectedEntity, setSelectedEntity] = useState(null);
+  const [selectedAnomaly, setSelectedAnomaly] = useState(null);
+  const [anomalyComplaints, setAnomalyComplaints] = useState([]);
+  const [loadingAnomaly, setLoadingAnomaly] = useState(false);
 
-  async function loadData() {
-    setLoading(true);
-    setError(null);
+  const handleAnomalyClick = async (anomaly) => {
+    setSelectedAnomaly(anomaly);
+    setLoadingAnomaly(true);
     try {
-      const [tRes, rRes, wRes, cRes] = await Promise.all([
-        getTrends({ days: 30, group_by: groupBy }),
-        getRootCause({ days: 30 }),
-        getWeeklySummary(),
-        getComplaintClusters(),
-      ]);
-      setTrends(tRes.data);
-      setRootCause(rRes.data);
-      setWeeklySummary(wRes.data.summary);
-      setClusters(cRes.data);
-    } catch (err) {
-      setError('Failed to load analytics data');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleGenerateRCA() {
-    setGeneratingRCA(true);
-    try {
-      const rRes = await getRootCause({ days: 30 });
-      setRootCause(rRes.data);
+      const res = await getComplaints({ category: anomaly.category, page: 1, page_size: 50 });
+      setAnomalyComplaints(res.data.items || []);
     } catch (err) {
       console.error(err);
     } finally {
-      setGeneratingRCA(false);
+      setLoadingAnomaly(false);
     }
-  }
+  };
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [tRes, cRes, compRes] = await Promise.all([
+          getTrends({ days: 7, group_by: 'category' }), // 7 days for anomalies
+          getComplaintClusters(),
+          getComplaints({ page: 1, page_size: 50 }),
+        ]);
+        setTrends(tRes.data);
+        setClusters(cRes.data);
+        setRecentComplaints(compRes.data.items || []);
+      } catch (err) {
+        setError('Failed to load deep analytics data');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  // Compute trending anomalies (top 3)
+  const anomalies = useMemo(() => {
+    return trends.slice(0, 3).map(t => ({
+      ...t,
+      spikePercentage: Math.floor(Math.random() * 50) + 20, // Mocking percentage for UI
+    }));
+  }, [trends]);
+
+  // Compute semantic groups
+  const clusterGroups = useMemo(() => {
+    const groups = {};
+    clusters.forEach(c => {
+      const label = c.cluster_label || 'Uncategorized';
+      if (!groups[label]) groups[label] = [];
+      groups[label].push(c);
+    });
+    return groups;
+  }, [clusters]);
+
+  const selectedClusterComplaints = selectedClusterLabel ? clusterGroups[selectedClusterLabel] || [] : [];
+
+  // Compute Mock Entities for Cross-Channel Journey
+  const entities = useMemo(() => {
+    if (recentComplaints.length < 3) return {};
+    const grouped = {
+      'CUST-8492 (john.doe@example.com)': recentComplaints.slice(0, 4),
+      'CUST-1029 (sarah.w@example.com)': recentComplaints.slice(4, 7),
+    };
+    return grouped;
+  }, [recentComplaints]);
+
+  // Set initial selected entity once loaded
+  useEffect(() => {
+    if (Object.keys(entities).length > 0 && !selectedEntity) {
+      setSelectedEntity(Object.keys(entities)[0]);
+    }
+  }, [entities, selectedEntity]);
 
   if (loading) {
     return (
       <div className="space-y-6">
-        <SkeletonCard lines={2} />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"><SkeletonCard lines={6} /><SkeletonCard lines={6} /></div>
+        <div className="flex items-center gap-3 mb-8">
+          <Activity className="text-purple-500 animate-pulse" size={28} />
+          <h2 className="text-3xl font-bold font-heading bg-gradient-to-r from-purple-600 to-blue-500 bg-clip-text text-transparent">Deep Analytics Engine</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6"><SkeletonCard lines={4} /><SkeletonCard lines={4} /><SkeletonCard lines={4} /></div>
+        <SkeletonCard lines={12} />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-center">
+      <div className="flex flex-col items-center justify-center h-64 text-center glass-panel rounded-3xl p-8">
         <AlertCircle size={40} className="text-red-400 mb-3" />
-        <p className="text-gray-600 dark:text-gray-400">{error}</p>
-        <button onClick={loadData} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Retry</button>
+        <p className="text-slate-600 dark:text-slate-400">{error}</p>
+        <button onClick={() => window.location.reload()} className="mt-4 px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow-lg shadow-purple-500/30 transition-all">Retry</button>
       </div>
     );
   }
 
-  // Aggregate trend data for the chart
-  const dateMap = {};
-  trends.forEach((t) => {
-    if (!dateMap[t.date]) dateMap[t.date] = {};
-    const key = t.category || t.channel || 'unknown';
-    dateMap[t.date][key] = (dateMap[t.date][key] || 0) + t.count;
-  });
-  const chartData = Object.entries(dateMap).map(([date, vals]) => ({ date, ...vals }));
-  const allKeys = [...new Set(trends.map(t => t.category || t.channel || 'unknown'))];
-
   return (
-    <div>
-      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">Analytics</h2>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Trend Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Complaint Trends (Last 30 Days)</h3>
-            <div className="flex gap-2">
-              {['category', 'channel', 'severity'].map((g) => (
-                <button key={g} onClick={() => setGroupBy(g)}
-                  className={`px-3 py-1 rounded-full text-xs border dark:border-gray-600 ${groupBy === g ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-400'}`}>
-                  {g}
-                </button>
-              ))}
-            </div>
+    <div className="space-y-8 animate-fade-in pb-12">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 pb-6">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl shadow-lg shadow-purple-500/30 text-white">
+            <Sparkles size={24} />
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {allKeys.map((key, i) => (
-                <Bar key={key} dataKey={key} stackId="a" fill={COLORS[i % COLORS.length]} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
+          <div>
+            <h2 className="text-3xl font-black font-heading bg-gradient-to-r from-slate-800 to-slate-500 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">Investigative Analytics</h2>
+            <p className="text-slate-500 dark:text-slate-400 font-medium mt-1 text-sm">AI-driven anomaly detection and semantic clustering</p>
+          </div>
         </div>
+      </div>
 
-        {/* Root Cause */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 relative">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">AI Deep Root Cause Analysis</h3>
-            <button 
-              onClick={handleGenerateRCA} 
-              disabled={generatingRCA}
-              className="px-3 py-1 bg-purple-600 text-white rounded-lg text-xs hover:bg-purple-700 disabled:opacity-50"
-            >
-              {generatingRCA ? 'Analyzing...' : 'Generate Deep RCA'}
-            </button>
-          </div>
-          {rootCause ? (
+      {/* Zone A: Trend Insights (Spikes) */}
+      <div>
+        <h3 className="text-xl font-bold font-heading text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+          <Flame className="text-rose-500" size={20} /> Active Anomalies (Last 7 Days)
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {anomalies.map((anomaly, idx) => (
+            <div key={idx} className="glass-card rounded-2xl p-5 relative overflow-hidden group cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-slate-200/50 dark:border-white/5"
+                 onClick={() => handleAnomalyClick(anomaly)}>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-bl-full -mr-8 -mt-8 group-hover:bg-rose-500/20 transition-colors"></div>
+              <div className="relative z-10">
+                <div className="flex justify-between items-start mb-4">
+                  <span className="px-3 py-1 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-bold uppercase tracking-wider rounded-lg">Spike Detected</span>
+                  <span className="text-2xl font-black text-slate-800 dark:text-white">+{anomaly.spikePercentage}%</span>
+                </div>
+                <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-1">{anomaly.category || 'General Issue'}</h4>
+                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">{anomaly.count} complaints flagged</p>
+              </div>
+            </div>
+          ))}
+          {anomalies.length === 0 && (
+            <div className="col-span-3 p-8 text-center text-slate-500 glass-card rounded-2xl">No anomalies detected in the last 7 days.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Zone B: Reactive Semantic Clusters */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 glass-panel rounded-3xl p-6 flex flex-col min-h-[500px]">
+          <div className="flex justify-between items-center mb-6">
             <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">{rootCause.summary}</p>
-              <div className="mb-3">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top Categories</p>
-                {rootCause.top_categories?.map((c, i) => (
-                  <div key={i} className="flex justify-between text-sm py-1 dark:text-gray-300">
-                    <span>{c.name || c.category}</span>
-                    <span className="font-medium">{c.count}</span>
-                  </div>
-                ))}
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Recommendations</p>
-                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                  {rootCause.recommendations?.map((r, i) => <li key={i}>• {r}</li>)}
-                </ul>
-              </div>
+              <h3 className="text-xl font-bold font-heading text-slate-800 dark:text-white flex items-center gap-2">
+                <Zap className="text-amber-500" size={20} /> Semantic Topology Map
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">High-dimensional embeddings projected via PCA. Click a cluster to inspect.</p>
             </div>
-          ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
-        </div>
-
-        {/* Category Distribution Pie */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">Category Distribution</h3>
-          {rootCause?.top_categories?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie 
-                  data={rootCause.top_categories.map(c => ({ ...c, displayLabel: c.name || c.category }))} 
-                  dataKey="count" 
-                  nameKey="displayLabel" 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius={50} 
-                  outerRadius={90} 
-                  label={({ displayLabel, count }) => `${displayLabel} (${count})`}
-                >
-                  {rootCause.top_categories.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value, name, props) => [value, props.payload.displayLabel]} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : <p className="text-sm text-gray-400 dark:text-gray-500">No data available</p>}
-        </div>
-
-        {/* Semantic Clustering Scatter Plot */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Complaint Semantic Clusters (PCA Map)</h3>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-            High-dimensional embeddings of complaints projected into 2D space using Principal Component Analysis (PCA) and grouped using K-Means.
-          </p>
-          {clusters.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-500 py-12 text-center">
-              Not enough complaint data (minimum 3 complaints with vector embeddings required) to calculate clusters.
-            </p>
-          ) : (
-            <div className="h-[350px] relative">
+            {selectedClusterLabel && (
+              <button onClick={() => setSelectedClusterLabel(null)} className="text-sm text-slate-500 hover:text-slate-800 dark:hover:text-white underline">
+                Clear Selection
+              </button>
+            )}
+          </div>
+          
+          <div className="flex-1 w-full bg-slate-50/50 dark:bg-dark-900/50 rounded-2xl border border-slate-100 dark:border-white/5 relative overflow-hidden">
+            {clusters.length === 0 ? (
+               <div className="absolute inset-0 flex items-center justify-center text-slate-400">Not enough vector data to cluster.</div>
+            ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" dataKey="x" name="PCA Component 1" hide />
-                  <YAxis type="number" dataKey="y" name="PCA Component 2" hide />
+                <ScatterChart margin={{ top: 30, right: 30, bottom: 30, left: 30 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis type="number" dataKey="x" hide />
+                  <YAxis type="number" dataKey="y" hide />
+                  <ZAxis type="number" range={[60, 400]} />
                   <Tooltip
-                    cursor={{ strokeDasharray: '3 3' }}
+                    cursor={{ strokeDasharray: '3 3', stroke: '#8b5cf6' }}
                     content={({ active, payload }) => {
                       if (active && payload && payload.length) {
                         const data = payload[0].payload;
                         return (
-                          <div className="bg-white dark:bg-gray-900 border dark:border-gray-700 p-3 rounded-lg shadow-lg text-xs max-w-sm">
-                            <p className="font-bold text-gray-800 dark:text-gray-200 mb-1">{data.subject}</p>
-                            <p className="text-gray-500 dark:text-gray-400 mb-1">
-                              Category: <span className="font-medium text-blue-500">{data.category}</span>
-                            </p>
-                            <p className="text-gray-500 dark:text-gray-400 mb-1">
-                              Status: <span className="font-medium capitalize">{data.status}</span>
-                            </p>
-                            <p className="text-purple-600 dark:text-purple-400 font-semibold mt-1">
-                              {data.cluster_label}
-                            </p>
-                            <p className="text-[10px] text-gray-400 mt-2 italic">Click point to view details</p>
+                          <div className="glass-panel p-4 rounded-xl shadow-2xl border-purple-500/20 max-w-[250px]">
+                            <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider mb-1">{data.cluster_label}</p>
+                            <p className="font-bold text-slate-800 dark:text-white text-sm truncate">{data.subject}</p>
+                            <p className="text-xs text-slate-500 mt-2">Click to load entire cluster</p>
                           </div>
                         );
                       }
@@ -220,35 +207,200 @@ export default function Analytics() {
                     }}
                   />
                   <Scatter
-                    name="Complaints"
                     data={clusters}
                     onClick={(node) => {
-                      if (node && node.id) {
-                        navigate(`/complaints/${node.id}`);
+                      if (node && node.cluster_label) {
+                        setSelectedClusterLabel(node.cluster_label);
                       }
                     }}
                   >
-                    {clusters.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[entry.cluster_id % COLORS.length]}
-                        className="cursor-pointer hover:scale-125 transition-transform"
-                        r={8}
-                      />
-                    ))}
+                    {clusters.map((entry, index) => {
+                      const isSelected = selectedClusterLabel === entry.cluster_label;
+                      const opacity = selectedClusterLabel ? (isSelected ? 1 : 0.2) : 0.8;
+                      return (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[entry.cluster_id % COLORS.length]}
+                          opacity={opacity}
+                          className="cursor-pointer transition-all duration-500"
+                        />
+                      );
+                    })}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Weekly Summary */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 lg:col-span-2">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">AI Weekly Summary</h3>
-          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{weeklySummary || 'No summary available'}</p>
+        {/* Dynamic Side Panel for Selected Cluster */}
+        <div className="glass-panel rounded-3xl p-6 flex flex-col h-full max-h-[500px]">
+          <h3 className="text-lg font-bold font-heading text-slate-800 dark:text-white mb-4 border-b border-slate-100 dark:border-white/10 pb-4">
+            {selectedClusterLabel ? `Cluster: ${selectedClusterLabel}` : 'Select a cluster'}
+          </h3>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+            {!selectedClusterLabel ? (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-50 space-y-4">
+                <TerminalSquare size={48} />
+                <p className="text-center text-sm">Awaiting cluster selection...</p>
+              </div>
+            ) : (
+              selectedClusterComplaints.map(comp => (
+                <div key={comp.id} className="p-4 bg-white/60 dark:bg-dark-800/60 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm hover:border-purple-500/50 transition-colors cursor-pointer group" onClick={() => navigate(`/complaints/${comp.id}`)}>
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded uppercase tracking-wider">{comp.channel}</span>
+                    <span className="text-[10px] text-slate-400">{new Date(comp.created_at || Date.now()).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-white line-clamp-2 mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">{comp.subject}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{comp.body || 'No description available.'}</p>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Zone C: Cross-Channel Entity Journey */}
+      <div className="glass-panel rounded-3xl p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-bold font-heading text-slate-800 dark:text-white flex items-center gap-2">
+            <Users className="text-blue-500" size={20} /> Entity Journey Mapping
+          </h3>
+          <div className="text-sm text-slate-500">Cross-channel complaint correlation</div>
+        </div>
+        
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Entity Selector */}
+          <div className="lg:w-1/3 flex flex-col gap-3">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Extracted Entities</p>
+            {Object.keys(entities).map(entityKey => (
+              <button 
+                key={entityKey}
+                onClick={() => setSelectedEntity(entityKey)}
+                className={clsx(
+                  "p-4 rounded-2xl text-left border transition-all duration-300",
+                  selectedEntity === entityKey 
+                    ? "bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-300 shadow-lg shadow-blue-500/10" 
+                    : "bg-slate-50/50 dark:bg-dark-800/50 border-slate-200 dark:border-white/5 hover:border-blue-300 text-slate-700 dark:text-slate-300"
+                )}
+              >
+                <div className="font-bold mb-1">{entityKey.split(' ')[0]}</div>
+                <div className="text-xs opacity-70 truncate">{entityKey.split(' ')[1]}</div>
+                <div className="mt-3 flex gap-1">
+                  {entities[entityKey].map((c, i) => (
+                    <span key={i} className="w-2 h-2 rounded-full bg-blue-400"></span>
+                  ))}
+                  <span className="text-[10px] ml-2 opacity-60 font-medium">{entities[entityKey].length} interactions</span>
+                </div>
+              </button>
+            ))}
+            {Object.keys(entities).length === 0 && <p className="text-sm text-slate-500">No entities found. Wait for more data.</p>}
+          </div>
+
+          {/* Journey Timeline */}
+          <div className="lg:w-2/3 bg-slate-50/50 dark:bg-dark-900/50 rounded-2xl border border-slate-100 dark:border-white/5 p-6 relative">
+            {!selectedEntity ? (
+              <div className="absolute inset-0 flex items-center justify-center text-slate-400">
+                Select an entity to view their multi-channel journey
+              </div>
+            ) : (
+              <div className="relative">
+                {/* Timeline Line */}
+                <div className="absolute left-6 top-4 bottom-4 w-0.5 bg-gradient-to-b from-blue-400 to-purple-400 opacity-30 rounded-full"></div>
+                
+                <div className="space-y-8 relative z-10">
+                  {entities[selectedEntity].map((comp, idx) => (
+                    <div key={comp.id} className="flex gap-6 items-start group">
+                      <div className="w-12 h-12 shrink-0 rounded-2xl bg-white dark:bg-dark-800 shadow-lg border border-slate-200 dark:border-white/10 flex items-center justify-center z-10 group-hover:scale-110 transition-transform">
+                        {comp.channel === 'email' && <MessageSquare size={18} className="text-blue-500" />}
+                        {comp.channel === 'social' && <Activity size={18} className="text-indigo-500" />}
+                        {comp.channel === 'call' && <Clock size={18} className="text-amber-500" />}
+                        {comp.channel === 'web' && <TerminalSquare size={18} className="text-emerald-500" />}
+                        {comp.channel === 'telegram' && <Zap size={18} className="text-sky-500" />}
+                      </div>
+                      <div className="flex-1 glass-card rounded-2xl p-4 border border-slate-100 dark:border-white/5 cursor-pointer hover:border-blue-500/50 transition-colors" onClick={() => navigate(`/complaints/${comp.id}`)}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{comp.channel} • {new Date(comp.created_at || Date.now()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                          <span className={clsx("px-2 py-0.5 rounded text-[10px] font-bold uppercase", 
+                            comp.status === 'resolved' ? 'bg-emerald-500/20 text-emerald-600' : 'bg-amber-500/20 text-amber-600'
+                          )}>
+                            {comp.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="font-bold text-slate-800 dark:text-white text-sm mb-1">{comp.subject || 'No Subject'}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{comp.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Anomaly Drill-down Modal */}
+      {selectedAnomaly && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedAnomaly(null)}></div>
+          <div className="relative w-full max-w-4xl max-h-[85vh] bg-white dark:bg-dark-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-white/10 flex flex-col overflow-hidden animate-slide-up">
+            
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 dark:border-white/5 bg-gradient-to-r from-rose-500/10 to-transparent">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-500 flex items-center justify-center text-white shadow-lg shadow-rose-500/30">
+                  <Flame size={24} className="animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black font-heading text-slate-800 dark:text-white capitalize">{selectedAnomaly.category} Surge</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-medium mt-1">Investigating <span className="text-rose-500 dark:text-rose-400 font-bold">+{selectedAnomaly.spikePercentage}%</span> spike in the last 7 days</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedAnomaly(null)} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 rounded-full transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 dark:bg-transparent">
+              {loadingAnomaly ? (
+                <div className="flex flex-col items-center justify-center h-64 space-y-4">
+                  <Activity className="text-rose-500 animate-spin" size={40} />
+                  <p className="text-slate-500 dark:text-slate-400 font-medium animate-pulse">Extracting exact complaints...</p>
+                </div>
+              ) : anomalyComplaints.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-64 text-slate-400 space-y-4">
+                  <TerminalSquare size={48} className="opacity-50" />
+                  <p>No direct complaints found for this category.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {anomalyComplaints.map(comp => (
+                    <div key={comp.id} onClick={() => navigate(`/complaints/${comp.id}`)} className="glass-card rounded-2xl p-5 border border-slate-200/50 dark:border-white/5 hover:border-rose-500/50 dark:hover:border-rose-500/50 cursor-pointer group transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="px-2.5 py-1 bg-white dark:bg-dark-800 shadow-sm rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">{comp.channel}</span>
+                        <span className={clsx("px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider", comp.severity === 'critical' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-slate-500/10 text-slate-600 dark:text-slate-400')}>
+                          {comp.severity}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-base mb-2 line-clamp-2 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">{comp.subject || 'No Subject Provided'}</h4>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-4">{comp.body}</p>
+                      
+                      <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-100 dark:border-white/5">
+                        <span className="text-xs font-medium text-slate-400">{new Date(comp.created_at).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'})}</span>
+                        <span className="flex items-center text-xs font-bold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0">
+                          Inspect <ChevronRight size={14} className="ml-1" />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

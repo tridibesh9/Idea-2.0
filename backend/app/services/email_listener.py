@@ -166,6 +166,10 @@ async def process_parsed_email(parsed, broadcast_callback=None) -> Optional[uuid
                             complaint_id=complaint.id, embedding=embedding_vector
                         )
                         db.add(emb)
+                        await db.flush()
+                        
+                        from app.services.grouping_engine import assign_incident_group
+                        complaint.incident_group_id = await assign_incident_group(complaint.id, db)
                 except Exception as e:
                     logger.warning(f"Failed to generate embedding: {e}")
 
