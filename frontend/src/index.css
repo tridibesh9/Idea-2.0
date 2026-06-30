@@ -2,30 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+@layer base {
+  body {
+    @apply font-sans antialiased bg-gray-50 text-slate-800 transition-colors duration-300;
+    /* Soft animated background pattern for light mode */
+    background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: -12px -12px;
+  }
+
+  .dark body {
+    @apply bg-dark-900 text-slate-200;
+    /* Soft animated background pattern for dark mode */
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading tracking-tight;
+  }
 }
 
-/* Dark mode transitions */
+@layer utilities {
+  .glass-panel {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+  }
+  .dark .glass-panel {
+    @apply bg-dark-800/70 backdrop-blur-md border border-white/5 shadow-xl;
+  }
+  
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-sm border border-gray-100 shadow-sm hover:shadow-md transition-shadow;
+  }
+  .dark .glass-card {
+    @apply bg-dark-700/80 backdrop-blur-sm border border-gray-800 shadow-none hover:shadow-lg hover:shadow-primary-900/20 transition-all;
+  }
+}
+
+/* Smooth transitions */
 *, *::before, *::after {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
 }
 
-.dark body {
-  background-color: #111827;
-  color: #f3f4f6;
+/* Premium Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-
-/* Scrollbar styling for dark mode */
-.dark ::-webkit-scrollbar {
-  width: 6px;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
-.dark ::-webkit-scrollbar-track {
-  background: #1f2937;
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
 }
 .dark ::-webkit-scrollbar-thumb {
-  background: #4b5563;
-  border-radius: 3px;
+  @apply bg-slate-700 hover:bg-slate-600;
 }
 
 /* Skeleton animation */

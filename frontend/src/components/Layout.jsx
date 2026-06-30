@@ -11,6 +11,7 @@ import {
   Zap,
   Download,
   FileText,
+  Sparkles,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useTheme } from '../context/ThemeContext';
@@ -23,7 +24,7 @@ const navItems = [
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/escalations', icon: AlertTriangle, label: 'Escalations' },
   { to: '/submit', icon: PlusCircle, label: 'Submit' },
-  { to: '/simulator', icon: Zap, label: 'Simulator Demo' },
+  { to: '/simulator', icon: Sparkles, label: 'Simulator Demo' },
 ];
 
 const channels = ['email', 'twitter', 'chat', 'phone'];
@@ -68,7 +69,7 @@ export default function Layout({ children }) {
         a.download = `complaints_export.csv`;
         a.click();
         URL.revokeObjectURL(url);
-        addToast('CSV exported', 'success');
+        addToast('CSV exported successfully', 'success');
       } else {
         window.open('/api/reports/export?format=pdf', '_blank');
         addToast('Report opened in new tab', 'success');
@@ -79,79 +80,92 @@ export default function Layout({ children }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
-      {/* Sidebar */}
-      <aside className="w-64 bg-gray-900 dark:bg-gray-950 text-white flex flex-col flex-shrink-0">
-        <div className="p-6 border-b border-gray-700">
-          <h1 className="text-xl font-bold tracking-tight">
-            <span className="text-blue-400">Complaint</span>IQ
+    <div className="flex h-screen overflow-hidden bg-transparent">
+      {/* Sidebar - Glassmorphic */}
+      <aside className="w-64 bg-white/60 dark:bg-dark-900/60 backdrop-blur-xl border-r border-gray-200/50 dark:border-white/5 flex flex-col flex-shrink-0 z-20 transition-all duration-300">
+        <div className="p-6">
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2 font-heading">
+            <span className="bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">Complaint</span>
+            <span className="text-slate-800 dark:text-white">IQ</span>
           </h1>
-          <p className="text-xs text-gray-400 mt-1">AI-Powered Dashboard</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">Gen-AI Dashboard</p>
         </div>
-        <nav className="flex-1 py-4 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                clsx(
-                  'flex items-center gap-3 px-6 py-3 text-sm transition-colors',
-                  isActive
-                    ? 'bg-blue-600/20 text-blue-400 border-r-2 border-blue-400'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                )
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
+        
+        <nav className="flex-1 py-4 px-3 overflow-y-auto custom-scrollbar">
+          <div className="space-y-1">
+            {navItems.map(({ to, icon: Icon, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) =>
+                  clsx(
+                    'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group',
+                    isActive
+                      ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-800 hover:text-slate-900 dark:hover:text-slate-200'
+                  )
+                }
+              >
+                <Icon size={18} className="group-hover:scale-110 transition-transform duration-200" />
+                {label}
+              </NavLink>
+            ))}
+          </div>
 
-          {/* Simulator Section */}
-          <div className="mt-6 px-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 px-2">Simulator</p>
-            <div className="grid grid-cols-2 gap-1">
+          <div className="mt-8">
+            <div className="px-4 flex items-center gap-2 mb-3">
+              <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-slate-500">Simulator</span>
+              <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 px-2">
               {channels.map((ch) => (
                 <button
                   key={ch}
                   disabled={simulating}
                   onClick={() => handleSimulate(ch)}
-                  className="px-2 py-1.5 text-[10px] bg-gray-800 hover:bg-gray-700 rounded text-gray-300 disabled:opacity-40 capitalize transition"
+                  className="px-2 py-2 text-xs font-medium bg-white dark:bg-dark-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary-400 dark:hover:border-primary-500 hover:text-primary-600 dark:hover:text-primary-400 disabled:opacity-50 capitalize shadow-sm transition-all"
                 >
                   {ch}
                 </button>
               ))}
             </div>
-            <button
-              disabled={simulating}
-              onClick={handleBurst}
-              className="w-full mt-1 px-2 py-1.5 text-[10px] bg-purple-700 hover:bg-purple-600 rounded text-white disabled:opacity-40 flex items-center justify-center gap-1 transition"
-            >
-              <Zap size={10} /> Burst (5)
-            </button>
+            <div className="px-2 mt-2">
+              <button
+                disabled={simulating}
+                onClick={handleBurst}
+                className="w-full px-2 py-2 text-xs font-semibold bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 rounded-lg text-white shadow-md shadow-indigo-500/20 disabled:opacity-50 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5"
+              >
+                <Zap size={14} className={simulating ? 'animate-pulse' : ''} /> Burst (5)
+              </button>
+            </div>
           </div>
 
-          {/* Export Section */}
-          <div className="mt-4 px-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 px-2">Export</p>
-            <div className="flex gap-1">
-              <button onClick={() => handleExport('csv')} className="flex-1 px-2 py-1.5 text-[10px] bg-gray-800 hover:bg-gray-700 rounded text-gray-300 flex items-center justify-center gap-1 transition">
-                <Download size={10} /> CSV
+          <div className="mt-6">
+            <div className="px-4 flex items-center gap-2 mb-3">
+              <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-slate-500">Export</span>
+              <div className="h-px bg-slate-200 dark:bg-slate-700/50 flex-1"></div>
+            </div>
+            <div className="flex gap-2 px-2">
+              <button onClick={() => handleExport('csv')} className="flex-1 px-2 py-2 text-xs font-medium bg-slate-100 dark:bg-dark-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg flex items-center justify-center gap-1.5 transition-colors">
+                <Download size={14} /> CSV
               </button>
-              <button onClick={() => handleExport('pdf')} className="flex-1 px-2 py-1.5 text-[10px] bg-gray-800 hover:bg-gray-700 rounded text-gray-300 flex items-center justify-center gap-1 transition">
-                <FileText size={10} /> Report
+              <button onClick={() => handleExport('pdf')} className="flex-1 px-2 py-2 text-xs font-medium bg-slate-100 dark:bg-dark-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg flex items-center justify-center gap-1.5 transition-colors">
+                <FileText size={14} /> Report
               </button>
             </div>
           </div>
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-700 flex items-center justify-between">
-          <span className="text-xs text-gray-500">ComplaintIQ v1.0</span>
+        <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-400">v1.0 &copy; 2024</span>
           <button
             onClick={toggle}
-            className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition"
+            className="p-2 rounded-xl bg-slate-100 dark:bg-dark-800 hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-all transform hover:rotate-12"
             title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {dark ? <Sun size={16} /> : <Moon size={16} />}
@@ -160,8 +174,8 @@ export default function Layout({ children }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-        <div className="p-6">{children}</div>
+      <main className="flex-1 overflow-y-auto relative z-10 custom-scrollbar">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto animate-fade-in">{children}</div>
       </main>
     </div>
   );
