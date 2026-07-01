@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Sparkles, Flame, Users, Zap, TerminalSquare, MessageSquare, Activity, Clock, X, ChevronRight } from 'lucide-react';
+import { AlertCircle, Sparkles, Flame, Users, Zap, TerminalSquare, MessageSquare, Activity, Clock, X, ChevronRight, Layers, BarChart3, ShieldAlert, Grid, MapPin, Filter } from 'lucide-react';
 import { getTrends, getComplaintClusters, getComplaints, getRootCause, getWeeklySummary, generateClusterRca } from '../api';
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ZAxis, Legend, PieChart, Pie
@@ -22,6 +22,7 @@ export default function Analytics() {
 
   // Interaction States
   const [selectedClusterLabel, setSelectedClusterLabel] = useState(null);
+  const [clusterViewMode, setClusterViewMode] = useState('scatter');
   const [selectedEntity, setSelectedEntity] = useState(null);
   const [selectedAnomaly, setSelectedAnomaly] = useState(null);
   const [anomalyComplaints, setAnomalyComplaints] = useState([]);
@@ -165,6 +166,31 @@ export default function Analytics() {
       groups[label].push(c);
     });
     return groups;
+  }, [clusters]);
+
+  const clusterSummaries = useMemo(() => {
+    const summaries = {};
+    clusters.forEach(c => {
+      const label = c.cluster_label || 'Uncategorized';
+      if (!summaries[label]) {
+        summaries[label] = {
+          label,
+          id: c.cluster_id || 0,
+          color: COLORS[(c.cluster_id || 0) % COLORS.length],
+          total: 0,
+          critical: 0,
+          high: 0,
+          open: 0,
+          items: []
+        };
+      }
+      summaries[label].total += 1;
+      if (c.severity === 'critical') summaries[label].critical += 1;
+      if (c.severity === 'high') summaries[label].high += 1;
+      if (['new', 'open', 'in_progress', 'escalated'].includes(c.status)) summaries[label].open += 1;
+      summaries[label].items.push(c);
+    });
+    return Object.values(summaries).sort((a, b) => b.total - a.total);
   }, [clusters]);
 
   const selectedClusterComplaints = selectedClusterLabel ? clusterGroups[selectedClusterLabel] || [] : [];
@@ -322,127 +348,369 @@ export default function Analytics() {
       </div>
 
       {/* Zone B: Reactive Semantic Clusters */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 glass-panel rounded-3xl p-6 flex flex-col min-h-[500px]">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="text-xl font-bold font-heading text-slate-800 dark:text-white flex items-center gap-2">
-                <Zap className="text-amber-500" size={20} /> Semantic Topology Map
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">High-dimensional embeddings projected via PCA. Click a cluster to inspect.</p>
+      <div className="space-y-6">
+        {/* Header & Controls */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold font-heading text-slate-800 dark:text-white flex items-center gap-2">
+              <Zap className="text-amber-500" size={20} /> Semantic Topology & Issue Clustering
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              AI-generated embeddings projected into 2D semantic space via PCA. Filter by cluster or explore individual nodes.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-slate-100 dark:bg-dark-800 p-1 rounded-xl border border-slate-200 dark:border-white/5">
+              <button
+                onClick={() => setClusterViewMode('scatter')}
+                className={clsx(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  clusterViewMode === 'scatter'
+                    ? "bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                )}
+              >
+                <MapPin size={14} /> PCA Scatter Map
+              </button>
+              <button
+                onClick={() => setClusterViewMode('grid')}
+                className={clsx(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  clusterViewMode === 'grid'
+                    ? "bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                )}
+              >
+                <Grid size={14} /> Theme Breakdown
+              </button>
             </div>
             {selectedClusterLabel && (
-              <button onClick={() => setSelectedClusterLabel(null)} className="text-sm text-slate-500 hover:text-slate-800 dark:hover:text-white underline">
-                Clear Selection
+              <button
+                onClick={() => setSelectedClusterLabel(null)}
+                className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-bold rounded-xl transition-all flex items-center gap-1"
+              >
+                <X size={14} /> Clear Filter
               </button>
-            )}
-          </div>
-          
-          <div className="flex-1 w-full bg-slate-50/50 dark:bg-dark-900/50 rounded-2xl border border-slate-100 dark:border-white/5 relative overflow-hidden">
-            {clusters.length === 0 ? (
-               <div className="absolute inset-0 flex items-center justify-center text-slate-400">Not enough vector data to cluster.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 30, right: 30, bottom: 30, left: 30 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                  <XAxis type="number" dataKey="x" hide />
-                  <YAxis type="number" dataKey="y" hide />
-                  <ZAxis type="number" dataKey="z" range={[60, 400]} />
-                  <Tooltip
-                    cursor={{ strokeDasharray: '3 3', stroke: '#8b5cf6' }}
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                          <div className="glass-panel p-4 rounded-xl shadow-2xl border-purple-500/20 max-w-[250px]">
-                            <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider mb-1">{data.cluster_label}</p>
-                            <p className="font-bold text-slate-800 dark:text-white text-sm truncate">{data.subject}</p>
-                            <p className="text-xs text-slate-500 mt-2">Click to load entire cluster</p>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Scatter
-                    name="Complaints"
-                    data={displayClusters}
-                    onClick={(node) => {
-                      if (node && node.cluster_label) {
-                        setSelectedClusterLabel(node.cluster_label);
-                      }
-                    }}
-                  >
-                    {displayClusters.map((entry, index) => {
-                      const isSelected = selectedClusterLabel === entry.cluster_label;
-                      const opacity = selectedClusterLabel ? (isSelected ? 1 : 0.15) : 0.8;
-                      const strokeProps = isSelected 
-                        ? { stroke: "#a855f7", strokeWidth: 3 } 
-                        : { stroke: "transparent", strokeWidth: 0 };
-                        
-                      return (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={COLORS[entry.cluster_id % COLORS.length]}
-                          opacity={opacity}
-                          className="cursor-pointer transition-all duration-500 hover:opacity-100"
-                          {...strokeProps}
-                        />
-                      );
-                    })}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
             )}
           </div>
         </div>
 
-        {/* Dynamic Side Panel for Selected Cluster */}
-        <div className="glass-panel rounded-3xl p-6 flex flex-col h-full max-h-[500px]">
-          <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-white/10 pb-4">
-            <h3 className="text-lg font-bold font-heading text-slate-800 dark:text-white">
-              {selectedClusterLabel ? `Cluster: ${selectedClusterLabel}` : 'Select a cluster'}
-            </h3>
-            {selectedClusterLabel && selectedClusterComplaints.length > 0 && (
-              <button
-                onClick={async () => {
-                   setGeneratingRca(true);
-                   try {
-                       const ids = selectedClusterComplaints.map(c => c.id);
-                       const res = await generateClusterRca(ids);
-                       setClusterRca(res.data);
-                   } catch (err) {
-                       console.error(err);
-                   } finally {
-                       setGeneratingRca(false);
-                   }
-                }}
-                disabled={generatingRca}
-                className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white text-xs font-bold rounded-lg shadow disabled:opacity-50 transition-all flex items-center gap-2"
+        {/* Interactive Cluster Overview Cards / Legend */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {clusterSummaries.map((summary, idx) => {
+            const isSelected = selectedClusterLabel === summary.label;
+            return (
+              <div
+                key={idx}
+                onClick={() => setSelectedClusterLabel(isSelected ? null : summary.label)}
+                className={clsx(
+                  "p-3.5 rounded-2xl border cursor-pointer transition-all duration-300 relative overflow-hidden group select-none",
+                  isSelected
+                    ? "bg-purple-500/10 dark:bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/10 -translate-y-0.5"
+                    : "glass-card hover:border-slate-300 dark:hover:border-white/20 border-slate-200/60 dark:border-white/5"
+                )}
               >
-                {generatingRca ? <Activity size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                Generate RCA
-              </button>
-            )}
-          </div>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-            {!selectedClusterLabel ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-50 space-y-4">
-                <TerminalSquare size={48} />
-                <p className="text-center text-sm">Awaiting cluster selection...</p>
+                <div
+                  className="absolute top-0 left-0 bottom-0 w-1.5 transition-all group-hover:w-2"
+                  style={{ backgroundColor: summary.color }}
+                />
+                <div className="pl-2">
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      Cluster #{summary.id + 1}
+                    </span>
+                    {summary.critical > 0 && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-black">
+                        <Flame size={10} className="fill-rose-500 animate-pulse" /> {summary.critical}
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="font-bold text-xs text-slate-800 dark:text-white line-clamp-1 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                    {summary.label}
+                  </h4>
+                  <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100 dark:border-white/5">
+                    <span className="text-xs font-black text-slate-700 dark:text-slate-200">
+                      {summary.total} <span className="text-[10px] font-medium text-slate-400">tickets</span>
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      {summary.open} open
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Main Cluster Visualization Workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Visualizer Area (2 cols) */}
+          <div className="lg:col-span-2 glass-panel rounded-3xl p-6 flex flex-col min-h-[520px]">
+            {clusterViewMode === 'scatter' ? (
+              <div className="flex-1 flex flex-col">
+                <div className="flex justify-between items-center mb-4 text-xs font-medium text-slate-400">
+                  <span>💡 Tip: Click any data point to select and analyze its cluster theme</span>
+                  <span className="flex items-center gap-1"><Layers size={14} /> PCA 2D Projection Space</span>
+                </div>
+                <div className="flex-1 w-full bg-slate-50/70 dark:bg-dark-900/70 rounded-2xl border border-slate-200/60 dark:border-white/5 relative overflow-hidden p-2">
+                  {clusters.length === 0 ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 space-y-2">
+                      <TerminalSquare size={36} className="opacity-40" />
+                      <p>Not enough vector embedding data to cluster.</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={430}>
+                      <ScatterChart margin={{ top: 20, right: 30, bottom: 25, left: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} stroke="#94a3b8" />
+                        <XAxis
+                          type="number"
+                          dataKey="x"
+                          name="Semantic Dim 1"
+                          domain={[0, 100]}
+                          tick={{ fontSize: 11, fill: '#64748b' }}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1', opacity: 0.5 }}
+                          label={{ value: 'Semantic Dimension 1 (PCA X)', position: 'insideBottom', offset: -15, fontSize: 11, fill: '#64748b', fontWeight: 600 }}
+                        />
+                        <YAxis
+                          type="number"
+                          dataKey="y"
+                          name="Semantic Dim 2"
+                          domain={[0, 100]}
+                          tick={{ fontSize: 11, fill: '#64748b' }}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1', opacity: 0.5 }}
+                          label={{ value: 'Semantic Dimension 2 (PCA Y)', angle: -90, position: 'insideLeft', offset: 10, fontSize: 11, fill: '#64748b', fontWeight: 600 }}
+                        />
+                        <ZAxis type="number" dataKey="z" range={[80, 450]} />
+                        <Tooltip
+                          cursor={{ strokeDasharray: '3 3', stroke: '#8b5cf6', strokeWidth: 1.5 }}
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              const clusterColor = COLORS[data.cluster_id % COLORS.length];
+                              return (
+                                <div className="bg-white/95 dark:bg-dark-900/95 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-slate-200 dark:border-white/10 max-w-[280px] space-y-2.5 animate-fade-in z-50">
+                                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-white/10 pb-2">
+                                    <span
+                                      className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md text-white shadow-sm"
+                                      style={{ backgroundColor: clusterColor }}
+                                    >
+                                      {data.cluster_label}
+                                    </span>
+                                    <span className={clsx(
+                                      "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded",
+                                      data.severity === 'critical' ? "bg-red-500/10 text-red-600 dark:text-red-400" :
+                                      data.severity === 'high' ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-slate-500/10 text-slate-600 dark:text-slate-400"
+                                    )}>
+                                      {data.severity}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-slate-800 dark:text-white text-xs leading-snug">{data.subject}</p>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">{data.body || "No description available."}</p>
+                                  </div>
+                                  <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400 font-medium">
+                                    <span className="uppercase">Via {data.channel || "web"}</span>
+                                    <span className="text-purple-600 dark:text-purple-400 font-bold">Click to inspect cluster →</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Scatter
+                          name="Complaints"
+                          data={displayClusters}
+                          onClick={(node) => {
+                            if (node && node.cluster_label) {
+                              setSelectedClusterLabel(selectedClusterLabel === node.cluster_label ? null : node.cluster_label);
+                            }
+                          }}
+                        >
+                          {displayClusters.map((entry, index) => {
+                            const isSelected = selectedClusterLabel === entry.cluster_label;
+                            const opacity = selectedClusterLabel ? (isSelected ? 1 : 0.15) : 0.85;
+                            const strokeProps = isSelected
+                              ? { stroke: "#ffffff", strokeWidth: 2.5 }
+                              : { stroke: "transparent", strokeWidth: 0 };
+
+                            return (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={COLORS[entry.cluster_id % COLORS.length]}
+                                opacity={opacity}
+                                className="cursor-pointer transition-all duration-300 hover:opacity-100 hover:scale-110"
+                                {...strokeProps}
+                              />
+                            );
+                          })}
+                        </Scatter>
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
             ) : (
-              selectedClusterComplaints.map(comp => (
-                <div key={comp.id} className="p-4 bg-white/60 dark:bg-dark-850/60 rounded-2xl border border-slate-100 dark:border-white/5 shadow-sm hover:border-purple-500/50 transition-colors cursor-pointer group" onClick={() => navigate(`/complaints/${comp.id}`)}>
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded uppercase tracking-wider">{comp.channel}</span>
-                    <span className="text-[10px] text-slate-400">{new Date(comp.created_at || Date.now()).toLocaleDateString()}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-800 dark:text-white line-clamp-2 mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">{comp.subject}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{comp.body || 'No description available.'}</p>
+              /* Theme Breakdown Grid View Mode */
+              <div className="flex-1 flex flex-col">
+                <div className="flex justify-between items-center mb-4 text-xs font-medium text-slate-400">
+                  <span>💡 Select a cluster card to view its tickets in the inspection panel</span>
+                  <span>Showing {clusterSummaries.length} Semantic Categories</span>
                 </div>
-              ))
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto max-h-[460px] pr-1 custom-scrollbar">
+                  {clusterSummaries.map((summary, idx) => {
+                    const isSelected = selectedClusterLabel === summary.label;
+                    const critPercent = Math.round((summary.critical / summary.total) * 100) || 0;
+                    const highPercent = Math.round((summary.high / summary.total) * 100) || 0;
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => setSelectedClusterLabel(isSelected ? null : summary.label)}
+                        className={clsx(
+                          "p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between group relative",
+                          isSelected
+                            ? "bg-purple-500/10 dark:bg-purple-500/20 border-purple-500 shadow-xl shadow-purple-500/10"
+                            : "glass-card hover:border-purple-500/50 border-slate-200/60 dark:border-white/5"
+                        )}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <span
+                              className="w-3 h-3 rounded-full shadow-sm"
+                              style={{ backgroundColor: summary.color }}
+                            />
+                            <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-dark-800 text-slate-600 dark:text-slate-300">
+                              {summary.total} Complaints
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-base text-slate-800 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors mb-1">
+                            {summary.label}
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                            {summary.critical > 0 ? `${summary.critical} critical severity issues requiring immediate intervention.` : "Normal operation variance observed in this semantic group."}
+                          </p>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-[10px] font-bold uppercase text-slate-400 mb-1">
+                            <span>Severity Distribution</span>
+                            <span>{critPercent + highPercent}% High/Crit</span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-dark-800 overflow-hidden flex">
+                            <div style={{ width: `${critPercent}%` }} className="bg-red-500 h-full" title="Critical" />
+                            <div style={{ width: `${highPercent}%` }} className="bg-amber-500 h-full" title="High" />
+                            <div style={{ width: `${100 - critPercent - highPercent}%` }} className="bg-blue-500/40 h-full" title="Normal" />
+                          </div>
+                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-white/5 text-xs font-bold text-purple-600 dark:text-purple-400">
+                            <span>{isSelected ? "Currently Inspecting" : "Click to Inspect"}</span>
+                            <ChevronRight size={16} className={clsx("transition-transform", isSelected ? "rotate-90" : "group-hover:translate-x-1")} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
+          </div>
+
+          {/* Dynamic Side Panel for Selected Cluster Deep Dive */}
+          <div className="glass-panel rounded-3xl p-6 flex flex-col h-full max-h-[580px] border-purple-500/20 shadow-xl">
+            <div className="flex flex-col gap-3 mb-4 border-b border-slate-100 dark:border-white/10 pb-4">
+              <div className="flex justify-between items-start gap-2">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-500">
+                    {selectedClusterLabel ? "Active Cluster Inspector" : "Cluster Inspector"}
+                  </span>
+                  <h3 className="text-lg font-black font-heading text-slate-800 dark:text-white leading-tight mt-0.5">
+                    {selectedClusterLabel || "Select a cluster theme"}
+                  </h3>
+                </div>
+                {selectedClusterLabel && (
+                  <button
+                    onClick={() => setSelectedClusterLabel(null)}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-white/5"
+                    title="Close inspector"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              {selectedClusterLabel && selectedClusterComplaints.length > 0 && (
+                <div className="flex items-center justify-between bg-slate-50 dark:bg-dark-850 p-2.5 rounded-xl border border-slate-200/50 dark:border-white/5">
+                  <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    <span className="text-purple-600 dark:text-purple-400 font-black">{selectedClusterComplaints.length}</span> tickets linked
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setGeneratingRca(true);
+                      try {
+                        const ids = selectedClusterComplaints.map(c => c.id);
+                        const res = await generateClusterRca(ids);
+                        setClusterRca(res.data);
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setGeneratingRca(false);
+                      }
+                    }}
+                    disabled={generatingRca}
+                    className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg shadow-md shadow-purple-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5 shrink-0"
+                  >
+                    {generatingRca ? <Activity size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    AI Cluster RCA
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1 space-y-3 custom-scrollbar">
+              {!selectedClusterLabel ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60 space-y-3 py-12">
+                  <div className="w-16 h-16 rounded-3xl bg-purple-500/10 flex items-center justify-center text-purple-500">
+                    <Layers size={32} />
+                  </div>
+                  <p className="text-center text-sm font-medium max-w-[200px]">
+                    Click any cluster card or scatter map node to inspect underlying tickets and generate AI root cause reports.
+                  </p>
+                </div>
+              ) : (
+                selectedClusterComplaints.map(comp => (
+                  <div
+                    key={comp.id}
+                    onClick={() => navigate(`/complaints/${comp.id}`)}
+                    className="p-4 bg-white/80 dark:bg-dark-850/80 rounded-2xl border border-slate-200/60 dark:border-white/5 shadow-sm hover:border-purple-500/50 dark:hover:border-purple-500/50 transition-all cursor-pointer group hover:shadow-md"
+                  >
+                    <div className="flex justify-between items-center mb-2 gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-black px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded uppercase tracking-wider">
+                          {comp.channel || "web"}
+                        </span>
+                        <span className={clsx(
+                          "text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider",
+                          comp.severity === 'critical' ? "bg-red-500/10 text-red-600 dark:text-red-400" :
+                          comp.severity === 'high' ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-slate-500/10 text-slate-600 dark:text-slate-400"
+                        )}>
+                          {comp.severity}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                        {new Date(comp.created_at || Date.now()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-white line-clamp-1 mb-1 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                      {comp.subject || "Untitled Complaint"}
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                      {comp.body || "No description available."}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>

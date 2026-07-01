@@ -189,6 +189,9 @@ async def get_complaint_clusters(db: AsyncSession = Depends(get_db)):
         complaint_data.append({
             "id": str(c.id),
             "subject": c.subject or "Untitled Complaint",
+            "body": c.body or "No description available.",
+            "channel": c.channel or "web",
+            "created_at": c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat(),
             "category": c.category or "general",
             "status": c.status,
             "severity": c.severity
@@ -242,6 +245,9 @@ async def get_complaint_clusters(db: AsyncSession = Depends(get_db)):
             points.append({
                 "id": c["id"],
                 "subject": c["subject"],
+                "body": c["body"],
+                "channel": c["channel"],
+                "created_at": c["created_at"],
                 "category": c["category"],
                 "status": c["status"],
                 "severity": c["severity"],
